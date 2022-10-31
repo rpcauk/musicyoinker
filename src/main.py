@@ -5,16 +5,27 @@ from mutagen.easyid3 import EasyID3
 import requests
 import json
 import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
+from spotipy.oauth2 import SpotifyClientCredentials, SpotifyOAuth
 import os
+import datetime
 
 os.environ["SPOTIPY_CLIENT_ID"] = "0124eb5e28344b1994d6e7fece490afa"
 os.environ["SPOTIPY_CLIENT_SECRET"] = "399537abb2be43cea872fd07eeee2306"
+os.environ["SPOTIPY_REDIRECT_URI"] = "https://localhost:8888/callback"
+
+# sp = spotipy.Spotify(
+#     auth_manager=SpotifyClientCredentials(
+#         client_id=os.environ["SPOTIPY_CLIENT_ID"],
+#         client_secret=os.environ["SPOTIPY_CLIENT_SECRET"],
+#     )
+# )
 
 sp = spotipy.Spotify(
-    auth_manager=SpotifyClientCredentials(
+    auth_manager=SpotifyOAuth(
         client_id=os.environ["SPOTIPY_CLIENT_ID"],
         client_secret=os.environ["SPOTIPY_CLIENT_SECRET"],
+        redirect_uri=os.environ["SPOTIPY_REDIRECT_URI"],
+        scope="user-library-read",
     )
 )
 
@@ -32,7 +43,7 @@ def track_length(milliseconds):
 config = {"tracks": {}, "artwork": {}}
 
 
-def download_track(track_id, output_dir=""):
+def download_track(track_id, output_dir=os.getcwd()):
     resp = sp.track(track_id)
     track_config = {"metadata": {}, "artwork": {}, "download": {}}
     track_config["metadata"] = {
@@ -92,6 +103,8 @@ def download_track(track_id, output_dir=""):
     audio = MP3(track_config["download"]["file"], ID3=EasyID3)
     for attribue, value in track_config["metadata"].items():
         audio[attribue] = value
+    EasyID3.RegisterTextKey("downloadid", "COMM")
+    audio["downloadid"] = track_config["download"]["id"]
     audio.save()
 
     audio = MP3(track_config["download"]["file"], ID3=ID3)
@@ -107,21 +120,32 @@ def download_track(track_id, output_dir=""):
     config["tracks"][resp["id"]] = track_config
 
 
-def download_album(album_id):
+def download_album(album_id, output_dir=""):
     album = sp.album(album_id)
-    tracks = sp.album_tracks(album_id, limit=50)
-    print(
-        [
-            download_track(x["id"], f"C:\\Users\\rasthmatic\\Music\\{album['name']}")
-            for x in tracks["items"]
+    tracks = sp.album_tracks(album_id, limit=50)["items"]
+    for track in tracks:
+        download_track(track["id"], f"{output_dir}\\{album['name']}")
+
+
+def download_playlist(playlist_id, output_dir=""):
+    playlist = sp.playlist(playlist_id)
+    tracks = []
+    while len(tracks) < playlist["tracks"]["total"]:
+        tracks += [
+            track["track"]["id"]
+            for track in sp.playlist_items(playlist_id, limit=5, offset=len(tracks))[
+                "items"
+            ]
         ]
-    )
+    for track in tracks:
+        download_track(track, f"{output_dir}\\{playlist['name']}")
 
 
-download_album("3lS1y25WAhcqJDATJK70Mq")
+# download_album("3lS1y25WAhcqJDATJK70Mq", f"C:\\Users\\rasthmatic\\Music")
 
 # download_track("7BmpRLqZg1vLheYi1SI1Rw")
 # download_track("4NTUtKqXiuqTTfEBgXyVRB")
+# download_playlist("1xJ5wc462pOf6BnrdAy1tl", f"C:\\Users\\rasthmatic\\Music")
 
-with open("config.json", "w") as cf:
+with open(f"state_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.json", "w") as cf:
     json.dump(config["tracks"], cf, indent=4)
