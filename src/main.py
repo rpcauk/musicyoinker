@@ -7,94 +7,9 @@ import json
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 import os
-from datetime import datetime
 
 os.environ["SPOTIPY_CLIENT_ID"] = "0124eb5e28344b1994d6e7fece490afa"
 os.environ["SPOTIPY_CLIENT_SECRET"] = "399537abb2be43cea872fd07eeee2306"
-
-urls = ["https://m.youtube.com/watch?v=REsc54NTz1A"]
-images = "https://i.scdn.co/image/ab67616d0000b273e0b60c608586d88252b8fbc0"
-example = """{
-  "album": {
-    "album_type": "album",
-    "artists": [
-      {
-        "external_urls": {
-          "spotify": "https://open.spotify.com/artist/06HL4z0CvFAxyc27GXpf02"
-        },
-        "href": "https://api.spotify.com/v1/artists/06HL4z0CvFAxyc27GXpf02",
-        "id": "06HL4z0CvFAxyc27GXpf02",
-        "name": "Taylor Swift",
-        "type": "artist",
-        "uri": "spotify:artist:06HL4z0CvFAxyc27GXpf02"
-      }
-    ],
-    "available_markets": [
-      "no"
-    ],
-    "external_urls": {
-      "spotify": "https://open.spotify.com/album/3lS1y25WAhcqJDATJK70Mq"
-    },
-    "href": "https://api.spotify.com/v1/albums/3lS1y25WAhcqJDATJK70Mq",
-    "id": "3lS1y25WAhcqJDATJK70Mq",
-    "images": [
-      {
-        "height": 64,
-        "url": "https://i.scdn.co/image/ab67616d00004851e0b60c608586d88252b8fbc0",
-        "width": 64
-      },
-      {
-        "height": 300,
-        "url": "https://i.scdn.co/image/ab67616d00001e02e0b60c608586d88252b8fbc0",
-        "width": 300
-      },
-      {
-        "height": 640,
-        "url": "https://i.scdn.co/image/ab67616d0000b273e0b60c608586d88252b8fbc0",
-        "width": 640
-      }
-    ],
-    "name": "Midnights (3am Edition)",
-    "release_date": "2022-10-22",
-    "release_date_precision": "day",
-    "total_tracks": 20,
-    "type": "album",
-    "uri": "spotify:album:3lS1y25WAhcqJDATJK70Mq"
-  },
-  "artists": [
-    {
-      "external_urls": {
-        "spotify": "https://open.spotify.com/artist/06HL4z0CvFAxyc27GXpf02"
-      },
-      "href": "https://api.spotify.com/v1/artists/06HL4z0CvFAxyc27GXpf02",
-      "id": "06HL4z0CvFAxyc27GXpf02",
-      "name": "Taylor Swift",
-      "type": "artist",
-      "uri": "spotify:artist:06HL4z0CvFAxyc27GXpf02"
-    }
-  ],
-  "available_markets": [
-    "no"
-  ],
-  "disc_number": 1,
-  "duration_ms": 200690,
-  "explicit": false,
-  "external_ids": {
-    "isrc": "USUG12205736"
-  },
-  "external_urls": {
-    "spotify": "https://open.spotify.com/track/02Zkkf2zMkwRGQjZ7T4p8f"
-  },
-  "href": "https://api.spotify.com/v1/tracks/02Zkkf2zMkwRGQjZ7T4p8f",
-  "id": "02Zkkf2zMkwRGQjZ7T4p8f",
-  "is_local": false,
-  "name": "Anti-Hero",
-  "popularity": 88,
-  "preview_url": null,
-  "track_number": 3,
-  "type": "track",
-  "uri": "spotify:track:02Zkkf2zMkwRGQjZ7T4p8f"
-}"""
 
 sp = spotipy.Spotify(
     auth_manager=SpotifyClientCredentials(
@@ -114,46 +29,76 @@ def track_length(milliseconds):
     return f"{length}{minutes%60}:{seconds%60}"
 
 
-# resp = sp.track("02Zkkf2zMkwRGQjZ7T4p8f")
+config = {"tracks": {}, "artwork": {}}
+
 resp = sp.track("6ADDIJxxqzM9LMpm78yzQG")
-covers = {}
-sresp = {
-    "albumartist": "; ".join([artist["name"] for artist in resp["album"]["artists"]]),
-    "album": resp["album"]["name"],
-    "date": resp["album"]["release_date"],
-    "artist": "; ".join([artist["name"] for artist in resp["artists"]]),
-    "discnumber": str(resp["disc_number"]),
-    "length": track_length(resp["duration_ms"]),
+track_config = {"metadata": {}, "artwork": {}, "download": {}}
+track_config["metadata"] = {
     "title": resp["name"],
+    "artist": "; ".join([artist["name"] for artist in resp["artists"]]),
+    "album": resp["album"]["name"],
+    "albumartist": "; ".join([artist["name"] for artist in resp["album"]["artists"]]),
+    "length": track_length(resp["duration_ms"]),
+    "date": resp["album"]["release_date"],
+    "discnumber": str(resp["disc_number"]),
     "tracknumber": str(resp["track_number"]),
 }
-if sresp["album"] not in covers:
-    cover_url = sorted(resp["album"]["images"], key=lambda i: i["height"])[0]["url"]
-    covers[resp["album"]["id"]] = requests.get(cover_url).content
-print(sresp)
 
-# ydl_opts = {
-#     "format": "mp3/bestaudio/best",
-#     "outtmpl": f"{sresp['title']}.mp3",
-#     "postprocessors": [
-#         {"key": "FFmpegExtractAudio", "preferredcodec": "mp3"},
-#     ],
-# }
+track_config["artwork"] = {
+    "id": resp["album"]["id"],
+    "url": sorted(resp["album"]["images"], key=lambda i: i["height"], reverse=True)[0][
+        "url"
+    ],
+}
 
-# with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-#     error_code = ydl.download(urls)
+if resp["album"]["id"] not in config["artwork"]:
+    config["artwork"][track_config["artwork"]["id"]] = requests.get(
+        track_config["artwork"]["url"]
+    ).content
 
-audio = MP3(f"{sresp['title']}.mp3", ID3=EasyID3)
-for attribue in sresp.keys():
-    audio[attribue] = sresp[attribue]
+
+ydl_opts = {
+    "format": "mp3/bestaudio/best",
+    "outtmpl": f"{track_config['metadata']['title']}.mp3",
+    "postprocessors": [
+        {"key": "FFmpegExtractAudio", "preferredcodec": "mp3"},
+    ],
+}
+
+with yt_dlp.YoutubeDL({"noplaylist": True}) as ydl:
+    search_url = (
+        "ytsearch1:"
+        + f"{track_config['metadata']['artist'].split(';')[0]} "
+        + f"{track_config['metadata']['title']} "
+        + '"Auto-generated by YouTube"'
+    )
+    download_url = ydl.extract_info(url=search_url, download=False)["entries"][0][
+        "webpage_url"
+    ]
+    track_config["download"] = {
+        "id": download_url.replace("https://www.youtube.com/watch?v=", ""),
+        "url": download_url,
+    }
+
+with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+    error_code = ydl.download(track_config["download"]["url"])
+
+audio = MP3(f"{track_config['metadata']['title']}.mp3", ID3=EasyID3)
+for attribue, value in track_config["metadata"].items():
+    audio[attribue] = value
 audio.save()
 
-audio = MP3(f"{sresp['title']}.mp3", ID3=ID3)
+audio = MP3(f"{track_config['metadata']['title']}.mp3", ID3=ID3)
 audio.tags["APIC"] = APIC(
-    encoding=3,
+    encoding=0,
     mime="image/jpeg",
     type=3,
     desc="Cover",
-    data=covers[resp["album"]["id"]],
+    data=config["artwork"][track_config["artwork"]["id"]],
 )
 audio.save()
+
+config["tracks"][resp["id"]] = track_config
+
+with open("config.json", "w") as cf:
+    json.dump(config["tracks"], cf, indent=4)
