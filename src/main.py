@@ -5,7 +5,7 @@ from mutagen.easyid3 import EasyID3
 import requests
 import json
 import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials, SpotifyOAuth
+from spotipy.oauth2 import SpotifyOAuth
 import os
 import datetime
 
