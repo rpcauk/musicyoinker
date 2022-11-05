@@ -79,12 +79,12 @@ with open("state_20221103203843.json") as json_file:
 
     for track_id, track_config in data.items():
         music_file = track_config["file"]
-        downlaod_url = track_config["download_url"]
+        download_url = track_config["download_url"]
         artwork_url = track_config["artwork_url"]
         metadata = track_config["metadata"]
         update_source(
             music_file=music_file,
-            download_url=downlaod_url,
+            download_url=download_url,
             metadata=metadata,
             artwork_url=artwork_url,
         )
