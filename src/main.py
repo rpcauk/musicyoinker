@@ -1,5 +1,5 @@
 import yt_dlp
-from mutagen.id3 import ID3, APIC
+from mutagen.id3 import ID3, APIC, COMM
 from mutagen.mp3 import MP3
 from mutagen.easyid3 import EasyID3
 import requests
@@ -12,13 +12,6 @@ import datetime
 os.environ["SPOTIPY_CLIENT_ID"] = "0124eb5e28344b1994d6e7fece490afa"
 os.environ["SPOTIPY_CLIENT_SECRET"] = "399537abb2be43cea872fd07eeee2306"
 os.environ["SPOTIPY_REDIRECT_URI"] = "https://localhost:8888/callback"
-
-# sp = spotipy.Spotify(
-#     auth_manager=SpotifyClientCredentials(
-#         client_id=os.environ["SPOTIPY_CLIENT_ID"],
-#         client_secret=os.environ["SPOTIPY_CLIENT_SECRET"],
-#     )
-# )
 
 sp = spotipy.Spotify(
     auth_manager=SpotifyOAuth(
@@ -41,11 +34,12 @@ def track_length(milliseconds):
 
 
 config = {"tracks": {}, "artwork": {}}
+error_codes = {}
 
 
 def download_track(track_id, output_dir=os.getcwd()):
     resp = sp.track(track_id)
-    track_config = {"metadata": {}, "artwork": {}, "download": {}}
+    track_config = {}
     track_config["metadata"] = {
         "title": resp["name"],
         "artist": "; ".join([artist["name"] for artist in resp["artists"]]),
@@ -59,16 +53,20 @@ def download_track(track_id, output_dir=os.getcwd()):
         "tracknumber": str(resp["track_number"]),
     }
 
-    track_config["artwork"] = {
-        "id": resp["album"]["id"],
-        "url": sorted(resp["album"]["images"], key=lambda i: i["height"], reverse=True)[
-            0
-        ]["url"],
-    }
+    track_config[
+        "file"
+    ] = f"{output_dir}\\{''.join(e for e in track_config['metadata']['title'] if e.isalnum())}.mp3"
+    track_config["artwork_url"] = sorted(
+        resp["album"]["images"], key=lambda i: i["height"], reverse=True
+    )[0]["url"]
 
-    if resp["album"]["id"] not in config["artwork"]:
-        config["artwork"][track_config["artwork"]["id"]] = requests.get(
-            track_config["artwork"]["url"]
+    print(
+        f"{track_config['metadata']['title']} {track_config['artwork_url'] in config['artwork']}"
+    )
+
+    if track_config["artwork_url"] not in config["artwork"]:
+        config["artwork"][track_config["artwork_url"]] = requests.get(
+            track_config["artwork_url"]
         ).content
 
     with yt_dlp.YoutubeDL({"noplaylist": True}) as ydl:
@@ -81,43 +79,54 @@ def download_track(track_id, output_dir=os.getcwd()):
         download_url = ydl.extract_info(url=search_url, download=False)["entries"][0][
             "webpage_url"
         ]
-        track_config["download"] = {
-            "id": download_url.replace("https://www.youtube.com/watch?v=", ""),
-            "url": download_url,
-            "file": f"{output_dir}\\{''.join(e for e in track_config['metadata']['title'] if e.isalnum())}.mp3",
-        }
+        track_config["download_url"] = download_url.replace("www", "m")
+
+    config["tracks"][track_id] = track_config
 
     ydl_opts = {
         "format": "mp3/bestaudio/best",
-        "outtmpl": track_config["download"]["file"],
+        "outtmpl": track_config["file"],
         "quiet": True,
         "no_warnings": True,
+        "extractor_retries": 3,
         "postprocessors": [
             {"key": "FFmpegExtractAudio", "preferredcodec": "mp3"},
         ],
     }
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        error_code = ydl.download(track_config["download"]["url"])
+        error_code = ydl.download(track_config["download_url"])
 
-    audio = MP3(track_config["download"]["file"], ID3=EasyID3)
+    audio = MP3(track_config["file"], ID3=EasyID3)
     for attribue, value in track_config["metadata"].items():
         audio[attribue] = value
-    EasyID3.RegisterTextKey("downloadid", "COMM")
-    audio["downloadid"] = track_config["download"]["id"]
     audio.save()
 
-    audio = MP3(track_config["download"]["file"], ID3=ID3)
+    audio = MP3(track_config["file"], ID3=ID3)
+    audio.tags["COMM:DLU:ENG"] = COMM(
+        encoding=0,
+        lang="ENG",
+        desc="download_url",
+        text=[track_config["download_url"]],
+    )
+    audio.tags["COMM:AWU:ENG"] = COMM(
+        encoding=0,
+        lang="ENG",
+        desc="artwork_url",
+        # text=[track_config["artwork"]["url"]],
+        text=[track_config["artwork_url"]],
+    )
     audio.tags["APIC"] = APIC(
         encoding=0,
         mime="image/jpeg",
         type=3,
         desc="Cover",
-        data=config["artwork"][track_config["artwork"]["id"]],
+        # data=config["artwork"][track_config["artwork"]["id"]],
+        data=config["artwork"][track_config["artwork_url"]],
     )
     audio.save()
 
-    config["tracks"][resp["id"]] = track_config
+    # config["tracks"][resp["id"]] = track_config
 
 
 def download_album(album_id, output_dir=""):
@@ -143,9 +152,14 @@ def download_playlist(playlist_id, output_dir=""):
 
 # download_album("3lS1y25WAhcqJDATJK70Mq", f"C:\\Users\\rasthmatic\\Music")
 
-# download_track("7BmpRLqZg1vLheYi1SI1Rw")
+download_track("7BmpRLqZg1vLheYi1SI1Rw")
+download_track("27hhIs2fp6w06N5zx4Eaa5")
 # download_track("4NTUtKqXiuqTTfEBgXyVRB")
 # download_playlist("1xJ5wc462pOf6BnrdAy1tl", f"C:\\Users\\rasthmatic\\Music")
+# download_playlist("37i9dQZF1DZ06evO0BCJ24", f"C:\\Users\\rasthmatic\\Music")
+download_album("3lS1y25WAhcqJDATJK70Mq", f"C:\\Users\\rasthmatic\\Music")
 
 with open(f"state_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}.json", "w") as cf:
     json.dump(config["tracks"], cf, indent=4)
+
+print(config["artwork"].keys())
