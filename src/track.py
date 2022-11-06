@@ -16,7 +16,6 @@ class Track:
             self.artwork_url = self.get_artwork_url(spotify["album"]["images"])
             self.download_url = self.get_download_url()
         elif json:
-            # print(json)
             self.metadata = json["metadata"]
             self.output_file = json["output_file"]
             self.artwork_url = json["artwork_url"]
@@ -68,6 +67,14 @@ class Track:
 
     def __repr__(self) -> str:
         return repr(vars(self))
+
+    def __eq__(self, __o: object) -> bool:
+        if isinstance(__o, Track):
+            return self.id == __o.id
+        return False
+
+    def __hash__(self) -> int:
+        return hash(self.id)
 
 
 class TrackEncoder(json.JSONEncoder):

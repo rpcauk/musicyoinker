@@ -3,8 +3,11 @@ import json
 from track import Track, TrackEncoder, TrackDecoder
 
 sc = SpotifyDownload("user-library-read")
-x = sc.track("7BmpRLqZg1vLheYi1SI1Rw")
-print(sc._config["tracks"])
+sc.track("7BmpRLqZg1vLheYi1SI1Rw")
+sc.track("7BmpRLqZg1vLheYi1SI1Rw")
+sc.album("3lS1y25WAhcqJDATJK70Mq")
+print(sc.tracks)
+print(len(sc.artwork))
 
 # # with open(f"config_test.json", "w") as cf:
 # #     json.dump(sc._config["tracks"], cf, cls=TrackEncoder, indent=4)

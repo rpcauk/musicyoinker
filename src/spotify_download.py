@@ -1,3 +1,4 @@
+import json
 import os
 import sys
 from typing import List
@@ -10,9 +11,7 @@ from mutagen.mp3 import MP3
 from spotipy.oauth2 import SpotifyOAuth
 from yt_dlp import YoutubeDL
 
-from utils import track_length
 from track import Track
-import json
 
 
 class SpotifyDownload:
@@ -29,7 +28,8 @@ class SpotifyDownload:
             spotipy_client_secret=spotipy_client_secret,
             spotipy_redirect_uri=spotipy_redirect_uri,
         )
-        self._config = {"tracks": {}, "artwork": {}}
+        self.tracks = set()
+        self.artwork = set()
 
     def _create_spotipy_client(
         self,
@@ -94,22 +94,63 @@ class SpotifyDownload:
         spotipy_client = spotipy.Spotify(auth_manager=SpotifyOAuth(**sc_params))
         return spotipy_client
 
-    def track(self, track_id, output_dir=os.getcwd()):
-        resp = self._spotipy_client.track(track_id)
-        track = Track(track_id, output_dir, spotify=resp)
-        self._config["tracks"][track_id] = track
+    def get_spotipy_client(self):
+        return self._spotipy_client
 
-        if track["artwork_url"] not in self._config["artwork"]:
-            artwork = requests.get(track["artwork_url"]).content
-            self._config["artwork"][track["artwork_url"]] = artwork
-        else:
-            artwork = self._config["artwork"][track["artwork_url"]]
+    def track(self, id, output_dir=None):
+        sc = self.get_spotipy_client()
+
+        if not output_dir:
+            output_dir = os.getcwd()
+
+        track = Track(id, output_dir, spotify=sc.track(id))
+        self.tracks.add(track)
+
+        artwork = requests.get(track["artwork_url"]).content
+        self.artwork.add(artwork)
+
+        print(
+            f"Downloading track {track['metadata']['title']} "
+            + f"by {track['metadata']['artist']} "
+            + f"from {track['metadata']['album']} "
+            + f"[{id}]"
+        )
 
         self.download(track)
         self.set_metadata(track["metadata"], track["output_file"])
         self.set_download_url(track["download_url"], track["output_file"])
         self.set_artwork_url(track["artwork_url"], track["output_file"])
         self.set_artwork(artwork, track["output_file"])
+
+    def album(self, id, output_dir=None):
+        sc = self.get_spotipy_client()
+        name = sc.album(id)["name"]
+        total = sc.album_tracks(id, limit=1)["total"]
+
+        if not output_dir:
+            output_dir = f"{os.getcwd()}\\{name}"
+
+        outputs = 0
+        while outputs < total:
+            tracks = sc.album_tracks(id, limit=10, offset=outputs)
+            for track in tracks["items"]:
+                self.track(track["id"], output_dir=output_dir)
+                outputs += 1
+
+    def playlist(self, id, output_dir=None):
+        sc = self.get_spotipy_client()
+        name = sc.playlist(id)["name"]
+        total = sc.playlist_items(id, limit=1)["total"]
+
+        if not output_dir:
+            output_dir = f"{os.getcwd()}\\{name}"
+
+        outputs = 0
+        while outputs < total:
+            tracks = sc.playlist_items(id, limit=10, offset=outputs)
+            for track in tracks["items"]:
+                self.track(track["id"], output_dir=output_dir)
+                outputs += 1
 
     def download(self, track):
         ydl_opts = {
