@@ -44,7 +44,7 @@ def update_metadata(music_file, metadata):
 
 def update_source(music_file, download_url, metadata, artwork_url):
     audio = MP3(music_file, ID3=ID3)
-    if downlaod_url != audio.tags["COMM:download_url:ENG"]:
+    if download_url != audio.tags["COMM:download_url:ENG"]:
         print(f"Updating music source...")  # TODO
         print(f"    {audio.tags['COMM:download_url:ENG']} -> {download_url}")
 
@@ -60,13 +60,13 @@ def update_source(music_file, download_url, metadata, artwork_url):
             ],
         }
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            error_code = ydl.download(downlaod_url)
+            error_code = ydl.download(download_url)
 
         audio.tags["COMM:DLU:ENG"] = COMM(
             encoding=0,
             lang="ENG",
             desc="download_url",
-            text=[downlaod_url],
+            text=[download_url],
         )
 
         audio.save()
