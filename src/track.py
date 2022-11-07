@@ -9,7 +9,6 @@ import sys
 class Track:
     def __init__(self, track_id, output_dir, spotify=None, json=None) -> None:
         self.id = track_id
-        self.output_dir = output_dir
         if spotify:
             self.metadata = self.get_metadata(spotify)
             self.output_file = self.get_output_file(output_dir)
@@ -59,14 +58,14 @@ class Track:
             results = ydl.extract_info(url=search, download=False)
             return results["entries"][0]["webpage_url"]
 
-    def __getitem__(self, __key):
-        return vars(self)[__key]
+    # def __getitem__(self, __key):
+    #     return vars(self)[__key]
 
-    def __setitem__(self, __key, __value) -> None:
-        vars(self)[__key] = __value
+    # def __setitem__(self, __key, __value) -> None:
+    #     vars(self)[__key] = __value
 
-    def __repr__(self) -> str:
-        return repr(vars(self))
+    # def __repr__(self) -> str:
+    #     return repr(vars(self))
 
     def __eq__(self, __o: object) -> bool:
         if isinstance(__o, Track):
@@ -91,6 +90,6 @@ class TrackDecoder(json.JSONDecoder):
 
     def object_hook(self, dct):
         if "id" in dct:
-            return Track(dct["id"], "h", json=dct)
+            return Track(dct["id"], dct["output_dir"], json=dct)
         else:
             return dct

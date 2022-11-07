@@ -4,6 +4,7 @@ import sys
 from typing import Dict, List, Optional
 
 import requests
+from dateutil import parser
 from mutagen.easyid3 import EasyID3
 from mutagen.id3 import APIC, COMM, ID3
 from mutagen.mp3 import MP3
@@ -28,7 +29,7 @@ class SpotifyDownload:
             client_secret=client_secret,
             redirect_uri=redirect_uri,
         )
-        self.tracks = set()
+        self.tracks = set()  # TODO: Not reducing downloads
         self.artwork = set()
 
     def create_client(
@@ -87,21 +88,21 @@ class SpotifyDownload:
         track = Track(id, output_dir, spotify=sc.track(id))
         self.tracks.add(track)
 
-        artwork = requests.get(track["artwork_url"]).content
+        artwork = requests.get(track.artwork_url).content
         self.artwork.add(artwork)
 
         print(
-            f"Downloading track {track['metadata']['title']} "
-            + f"by {track['metadata']['artist']} "
-            + f"from {track['metadata']['album']} "
+            f"Downloading track {track.metadata['title']} "
+            + f"by {track.metadata['artist']} "
+            + f"from {track.metadata['album']} "
             + f"[{id}]"
         )
 
-        self.download(track)
-        self.set_metadata(track["metadata"], track["output_file"])
-        self.set_download_url(track["download_url"], track["output_file"])
-        self.set_artwork_url(track["artwork_url"], track["output_file"])
-        self.set_artwork(artwork, track["output_file"])
+        self.download(track.download_url, track.output_file)
+        self.set_metadata(track.metadata, track.output_file)
+        self.set_download_url(track.download_url, track.output_file)
+        self.set_artwork_url(track.artwork_url, track.output_file)
+        self.set_artwork(artwork, track.output_file)
 
     def album(self, id: str, output_dir: Optional[str] = None) -> None:
         sc = self.get_client()
@@ -133,10 +134,10 @@ class SpotifyDownload:
                 self.track(track["id"], output_dir=output_dir)
                 outputs += 1
 
-    def download(self, track: Track) -> None:
+    def download(self, download_url: str, output_file: str) -> None:
         ydl_opts = {
             "format": "mp3/bestaudio/best",
-            "outtmpl": track["output_file"],
+            "outtmpl": output_file,
             "quiet": True,
             "no_warnings": True,
             "extractor_retries": 3,
@@ -146,7 +147,7 @@ class SpotifyDownload:
         }
 
         with YoutubeDL(ydl_opts) as ydl:
-            error_code = ydl.download(track["download_url"])
+            error_code = ydl.download(download_url)
 
     def set_metadata(self, metadata: Dict[str, str], output_file: str) -> None:
         audio = MP3(output_file, ID3=EasyID3)
@@ -187,8 +188,20 @@ class SpotifyDownload:
 
     def export_json(self, output_file: str) -> None:
         with open(output_file, "w") as of:
-            json.dump(list(self.tracks), of, cls=TrackEncoder, indent=4)
+            key = lambda x: (
+                x.metadata["artist"].split(";")[0],
+                parser.parse(x.metadata["date"]),
+                x.metadata["album"],
+                int(x.metadata["discnumber"]),
+                int(x.metadata["tracknumber"]),
+            )
+            sorted_tracks = list(sorted(self.tracks, key=key))
+            json.dump(sorted_tracks, of, cls=TrackEncoder, indent=4)
 
     def import_json(self, output_file: str) -> None:
         with open(output_file) as of:
             data = json.load(of, cls=TrackDecoder)
+        self.tracks = set(data)
+        for track in self.tracks:
+            artwork = requests.get(track.artwork_url).content
+            self.artwork.add(artwork)
