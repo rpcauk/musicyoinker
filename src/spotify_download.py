@@ -1,28 +1,28 @@
 import json
 import os
 import sys
-from typing import List
+from typing import Dict, List, Optional
 
 import requests
-import spotipy
 from mutagen.easyid3 import EasyID3
 from mutagen.id3 import APIC, COMM, ID3
 from mutagen.mp3 import MP3
+from spotipy import Spotify
 from spotipy.oauth2 import SpotifyOAuth
 from yt_dlp import YoutubeDL
 
-from track import Track
+from track import Track, TrackDecoder, TrackEncoder
 
 
 class SpotifyDownload:
     def __init__(
         self,
-        scope,
-        client_id=None,
-        client_secret=None,
-        redirect_uri=None,
+        scope: List[str],
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        redirect_uri: Optional[str] = None,
     ) -> None:
-        self._spotipy_client = self._create_spotipy_client(
+        self._spotipy_client = self.create_client(
             scope=scope,
             client_id=client_id,
             client_secret=client_secret,
@@ -31,13 +31,13 @@ class SpotifyDownload:
         self.tracks = set()
         self.artwork = set()
 
-    def _create_spotipy_client(
+    def create_client(
         self,
         scope: List[str],
-        client_id=None,
-        client_secret=None,
-        redirect_uri=None,
-    ):
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        redirect_uri: Optional[str] = None,
+    ) -> Spotify:
         sc_params = {}
 
         if not scope:
@@ -72,14 +72,14 @@ class SpotifyDownload:
                 print('  export SPOTIPY_CLIENT_SECRET="<value>"')
             sys.exit(1)
 
-        spotipy_client = spotipy.Spotify(auth_manager=SpotifyOAuth(**sc_params))
+        spotipy_client = Spotify(auth_manager=SpotifyOAuth(**sc_params))
         return spotipy_client
 
-    def get_spotipy_client(self):
+    def get_client(self) -> Spotify:
         return self._spotipy_client
 
-    def track(self, id, output_dir=None):
-        sc = self.get_spotipy_client()
+    def track(self, id: str, output_dir: Optional[str] = None) -> None:
+        sc = self.get_client()
 
         if not output_dir:
             output_dir = os.getcwd()
@@ -103,8 +103,8 @@ class SpotifyDownload:
         self.set_artwork_url(track["artwork_url"], track["output_file"])
         self.set_artwork(artwork, track["output_file"])
 
-    def album(self, id, output_dir=None):
-        sc = self.get_spotipy_client()
+    def album(self, id: str, output_dir: Optional[str] = None) -> None:
+        sc = self.get_client()
         name = sc.album(id)["name"]
         total = sc.album_tracks(id, limit=1)["total"]
 
@@ -118,8 +118,8 @@ class SpotifyDownload:
                 self.track(track["id"], output_dir=output_dir)
                 outputs += 1
 
-    def playlist(self, id, output_dir=None):
-        sc = self.get_spotipy_client()
+    def playlist(self, id: str, output_dir: Optional[str] = None) -> None:
+        sc = self.get_client()
         name = sc.playlist(id)["name"]
         total = sc.playlist_items(id, limit=1)["total"]
 
@@ -133,7 +133,7 @@ class SpotifyDownload:
                 self.track(track["id"], output_dir=output_dir)
                 outputs += 1
 
-    def download(self, track):
+    def download(self, track: Track) -> None:
         ydl_opts = {
             "format": "mp3/bestaudio/best",
             "outtmpl": track["output_file"],
@@ -148,13 +148,13 @@ class SpotifyDownload:
         with YoutubeDL(ydl_opts) as ydl:
             error_code = ydl.download(track["download_url"])
 
-    def set_metadata(self, metadata, output_file):
+    def set_metadata(self, metadata: Dict[str, str], output_file: str) -> None:
         audio = MP3(output_file, ID3=EasyID3)
         for attribue, value in metadata.items():
             audio[attribue] = value
         audio.save()
 
-    def set_download_url(self, download_url, output_file):
+    def set_download_url(self, download_url: str, output_file: str) -> None:
         audio = MP3(output_file, ID3=ID3)
         audio.tags["COMM:DLU:ENG"] = COMM(
             encoding=0,
@@ -164,7 +164,7 @@ class SpotifyDownload:
         )
         audio.save()
 
-    def set_artwork_url(self, artwork_url, output_file):
+    def set_artwork_url(self, artwork_url: str, output_file: str) -> None:
         audio = MP3(output_file, ID3=ID3)
         audio.tags["COMM:AWU:ENG"] = COMM(
             encoding=0,
@@ -174,7 +174,7 @@ class SpotifyDownload:
         )
         audio.save()
 
-    def set_artwork(self, artwork, output_file):
+    def set_artwork(self, artwork: str, output_file: str) -> None:
         audio = MP3(output_file, ID3=ID3)
         audio.tags["APIC"] = APIC(
             encoding=0,
@@ -184,3 +184,11 @@ class SpotifyDownload:
             data=artwork,
         )
         audio.save()
+
+    def export_json(self, output_file: str) -> None:
+        with open(output_file, "w") as of:
+            json.dump(list(self.tracks), of, cls=TrackEncoder, indent=4)
+
+    def import_json(self, output_file: str) -> None:
+        with open(output_file) as of:
+            data = json.load(of, cls=TrackDecoder)

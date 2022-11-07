@@ -91,7 +91,6 @@ class TrackDecoder(json.JSONDecoder):
 
     def object_hook(self, dct):
         if "id" in dct:
-            print(dct)
             return Track(dct["id"], "h", json=dct)
         else:
             return dct
