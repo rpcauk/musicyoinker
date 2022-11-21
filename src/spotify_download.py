@@ -11,6 +11,9 @@ from mutagen.mp3 import MP3
 from spotipy import Spotify
 from spotipy.oauth2 import SpotifyOAuth
 from yt_dlp import YoutubeDL
+from selenium import webdriver
+from selenium.webdriver.chrome.options import Options
+from time import sleep
 
 from track import Track, TrackDecoder, TrackEncoder
 
@@ -29,6 +32,11 @@ class SpotifyDownload:
             client_secret=client_secret,
             redirect_uri=redirect_uri,
         )
+        extension_path = r"C:\Users\rasthmatic\Documents\path\ublockorigin\1.45.2_2"
+        chrome_options = Options()
+        chrome_options.add_argument(f"load-extension={extension_path}")
+        self.browser = webdriver.Chrome(chrome_options=chrome_options)
+        self.browser.get("https://github.com/ryanpcadams/swedish-maestro")
         self.tracks = set()  # TODO: Not reducing downloads
         self.artwork = set()
 
@@ -79,6 +87,24 @@ class SpotifyDownload:
     def get_client(self) -> Spotify:
         return self._spotipy_client
 
+    def validate(self, id: str, track: Track) -> None:
+        self.browser.execute_script(f"window.open('about:blank','{id}');")
+        self.browser.switch_to.window(id)
+        self.browser.get(track.download_url)
+        new_url = track.download_url
+        while True:
+            try:
+                new_url = self.browser.current_url
+                print(new_url)
+                sleep(1)
+            except Exception as e:
+                break
+        if track.download_url != new_url:
+            print(f"    Correcting download url from {track.download_url} -> {new_url}")
+        track.download_url = new_url
+        self.browser.switch_to.window(self.browser.window_handles[-1])
+        print(new_url)
+
     def track(self, id: str, output_dir: Optional[str] = None) -> None:
         sc = self.get_client()
 
@@ -86,10 +112,6 @@ class SpotifyDownload:
             output_dir = os.getcwd()
 
         track = Track(id, output_dir, spotify=sc.track(id))
-        self.tracks.add(track)
-
-        artwork = requests.get(track.artwork_url).content
-        self.artwork.add(artwork)
 
         print(
             f"Downloading track {track.metadata['title']} "
@@ -97,6 +119,12 @@ class SpotifyDownload:
             + f"from {track.metadata['album']} "
             + f"[{id}]"
         )
+
+        self.validate(id, track)
+        self.tracks.add(track)
+
+        artwork = requests.get(track.artwork_url).content
+        self.artwork.add(artwork)
 
         self.download(track.download_url, track.output_file)
         self.set_metadata(track.metadata, track.output_file)

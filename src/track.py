@@ -58,14 +58,7 @@ class Track:
             results = ydl.extract_info(url=search, download=False)
             return results["entries"][0]["webpage_url"]
 
-    # def __getitem__(self, __key):
-    #     return vars(self)[__key]
-
-    # def __setitem__(self, __key, __value) -> None:
-    #     vars(self)[__key] = __value
-
-    # def __repr__(self) -> str:
-    #     return repr(vars(self))
+    # def validate(self):
 
     def __eq__(self, __o: object) -> bool:
         if isinstance(__o, Track):
