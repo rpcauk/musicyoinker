@@ -2,3 +2,4 @@ black
 requests
 spotipy
 yt-dlp
+python-dateutil

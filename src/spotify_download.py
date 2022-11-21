@@ -131,7 +131,8 @@ class SpotifyDownload:
         while outputs < total:
             tracks = sc.playlist_items(id, limit=10, offset=outputs)
             for track in tracks["items"]:
-                self.track(track["id"], output_dir=output_dir)
+                # print(track)
+                self.track(track["track"]["id"], output_dir=output_dir)
                 outputs += 1
 
     def download(self, download_url: str, output_file: str) -> None:
