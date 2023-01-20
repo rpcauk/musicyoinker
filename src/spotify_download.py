@@ -32,13 +32,14 @@ class SpotifyDownload:
             client_secret=client_secret,
             redirect_uri=redirect_uri,
         )
-        extension_path = r"C:\Users\rasthmatic\Documents\path\ublockorigin\1.45.2_2"
-        chrome_options = Options()
-        chrome_options.add_argument(f"load-extension={extension_path}")
-        self.browser = webdriver.Chrome(chrome_options=chrome_options)
-        self.browser.get("https://github.com/ryanpcadams/swedish-maestro")
-        self.tracks = set()  # TODO: Not reducing downloads
-        self.artwork = set()
+        # TODO: Move into separate function
+        # extension_path = r"C:\Users\rasthmatic\Documents\path\ublockorigin\1.45.2_2"
+        # chrome_options = Options()
+        # chrome_options.add_argument(f"load-extension={extension_path}")
+        # self.browser = webdriver.Chrome(chrome_options=chrome_options)
+        # self.browser.get("https://github.com/ryanpcadams/swedish-maestro")
+        self.tracks = {}  # TODO: Not reducing downloads
+        self.artwork = {}
 
     def create_client(
         self,
@@ -91,19 +92,22 @@ class SpotifyDownload:
         self.browser.execute_script(f"window.open('about:blank','{id}');")
         self.browser.switch_to.window(id)
         self.browser.get(track.download_url)
-        new_url = track.download_url
+        durl = track.download_url
         while True:
             try:
                 new_url = self.browser.current_url
-                print(new_url)
+                if not new_url:
+                    break
+                durl = new_url
+                print(durl)
                 sleep(1)
             except Exception as e:
                 break
-        if track.download_url != new_url:
-            print(f"    Correcting download url from {track.download_url} -> {new_url}")
-        track.download_url = new_url
+        if track.download_url != durl:
+            print(f"    Correcting download url from {track.download_url} -> {durl}")
+        track.download_url = durl
         self.browser.switch_to.window(self.browser.window_handles[-1])
-        print(new_url)
+        print(durl)
 
     def track(self, id: str, output_dir: Optional[str] = None) -> None:
         sc = self.get_client()
@@ -111,7 +115,11 @@ class SpotifyDownload:
         if not output_dir:
             output_dir = os.getcwd()
 
+        if id in self.tracks:
+            return
+
         track = Track(id, output_dir, spotify=sc.track(id))
+        self.tracks[id] = track
 
         print(
             f"Downloading track {track.metadata['title']} "
@@ -120,11 +128,13 @@ class SpotifyDownload:
             + f"[{id}]"
         )
 
-        self.validate(id, track)
-        self.tracks.add(track)
+        # self.validate(id, track)
 
-        artwork = requests.get(track.artwork_url).content
-        self.artwork.add(artwork)
+        if track.artwork_url in self.artwork:
+            artwork = self.artwork[track.artwork_url]
+        else:
+            artwork = requests.get(track.artwork_url).content
+            self.artwork[track.artwork_url] = artwork
 
         self.download(track.download_url, track.output_file)
         self.set_metadata(track.metadata, track.output_file)
@@ -132,13 +142,15 @@ class SpotifyDownload:
         self.set_artwork_url(track.artwork_url, track.output_file)
         self.set_artwork(artwork, track.output_file)
 
+        self.export_json("cummulative.json")
+
     def album(self, id: str, output_dir: Optional[str] = None) -> None:
         sc = self.get_client()
         name = sc.album(id)["name"]
         total = sc.album_tracks(id, limit=1)["total"]
 
-        if not output_dir:
-            output_dir = f"{os.getcwd()}\\{name}"
+        # if not output_dir:
+        #     output_dir = f"{os.getcwd()}\\{name}"
 
         outputs = 0
         while outputs < total:
@@ -152,8 +164,8 @@ class SpotifyDownload:
         name = sc.playlist(id)["name"]
         total = sc.playlist_items(id, limit=1)["total"]
 
-        if not output_dir:
-            output_dir = f"{os.getcwd()}\\{name}"
+        # if not output_dir:
+        #     output_dir = f"{os.getcwd()}\\{name}"
 
         outputs = 0
         while outputs < total:
@@ -224,13 +236,12 @@ class SpotifyDownload:
                 int(x.metadata["discnumber"]),
                 int(x.metadata["tracknumber"]),
             )
-            sorted_tracks = list(sorted(self.tracks, key=key))
+            sorted_tracks = sorted(self.tracks.values(), key=key)
             json.dump(sorted_tracks, of, cls=TrackEncoder, indent=4)
 
     def import_json(self, output_file: str) -> None:
         with open(output_file) as of:
             data = json.load(of, cls=TrackDecoder)
-        self.tracks = set(data)
-        for track in self.tracks:
-            artwork = requests.get(track.artwork_url).content
-            self.artwork.add(artwork)
+        self.tracks = {}
+        for x in data:
+            self.tracks[x.id] = x
