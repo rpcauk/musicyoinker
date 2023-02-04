@@ -1,13 +1,12 @@
 import click
-from spotify_download import SpotifyDownload
+from mymelody.spotify_download import SpotifyDownload
 
 default_dir = "C:\\Users\\rasthmatic\\Music"
 
 
 @click.group()
 def main():
-    # print(f"hello {count}")
-    print("test")
+    pass
 
 
 @main.command()

@@ -6,16 +6,14 @@ from typing import Dict, List, Optional
 import requests
 from dateutil import parser
 from mutagen.easyid3 import EasyID3
-from mutagen.id3 import APIC, COMM, ID3
+from mutagen.id3 import APIC, ID3
 from mutagen.mp3 import MP3
 from spotipy import Spotify
 from spotipy.oauth2 import SpotifyOAuth
 from yt_dlp import YoutubeDL
-from selenium import webdriver
-from selenium.webdriver.chrome.options import Options
-from time import sleep
 
-from track import Track, TrackDecoder, TrackEncoder
+from mymelody.track import Track, TrackDecoder, TrackEncoder
+import sqlite3
 
 
 class SpotifyDownload:
@@ -32,14 +30,30 @@ class SpotifyDownload:
             client_secret=client_secret,
             redirect_uri=redirect_uri,
         )
-        # TODO: Move into separate function
-        # extension_path = r"C:\Users\rasthmatic\Documents\path\ublockorigin\1.45.2_2"
-        # chrome_options = Options()
-        # chrome_options.add_argument(f"load-extension={extension_path}")
-        # self.browser = webdriver.Chrome(chrome_options=chrome_options)
-        # self.browser.get("https://github.com/ryanpcadams/swedish-maestro")
         self.tracks = {}  # TODO: Not reducing downloads
         self.artwork = {}
+        self.conn = sqlite3.connect("sm.db")
+        self.c = self.conn.cursor()
+        self.c.execute(
+            """
+                CREATE TABLE IF NOT EXISTS tracks (
+                    id text PRIMARY KEY,
+                    title text NOT NULL,
+                    artist text NOT NULL,
+                    album text,
+                    albumartist text,
+                    length text NOT NULL,
+                    date text,
+                    discnumber text,
+                    tracknumber text,
+                    download_url text NOT NULL,
+                    artwork_url text NOT NULL,
+                    explicit boolean NOT NULL DEFAULT 0,
+                    validated boolean DEFAULT 0,
+                    hidden boolean DEFAULT 0
+                );
+            """
+        )
 
     def create_client(
         self,
@@ -88,27 +102,6 @@ class SpotifyDownload:
     def get_client(self) -> Spotify:
         return self._spotipy_client
 
-    def validate(self, id: str, track: Track) -> None:
-        self.browser.execute_script(f"window.open('about:blank','{id}');")
-        self.browser.switch_to.window(id)
-        self.browser.get(track.download_url)
-        durl = track.download_url
-        while True:
-            try:
-                new_url = self.browser.current_url
-                if not new_url:
-                    break
-                durl = new_url
-                print(durl)
-                sleep(1)
-            except Exception as e:
-                break
-        if track.download_url != durl:
-            print(f"    Correcting download url from {track.download_url} -> {durl}")
-        track.download_url = durl
-        self.browser.switch_to.window(self.browser.window_handles[-1])
-        print(durl)
-
     def track(self, id: str, output_dir: Optional[str] = None) -> None:
         sc = self.get_client()
 
@@ -122,9 +115,9 @@ class SpotifyDownload:
         self.tracks[id] = track
 
         print(
-            f"Downloading track {track.metadata['title']} "
-            + f"by {track.metadata['artist']} "
-            + f"from {track.metadata['album']} "
+            f"Downloading track {track.title} "
+            + f"by {track.artist} "
+            + f"from {track.album} "
             + f"[{id}]"
         )
 
@@ -138,19 +131,36 @@ class SpotifyDownload:
 
         self.download(track.download_url, track.output_file)
         self.set_metadata(track.metadata, track.output_file)
-        self.set_download_url(track.download_url, track.output_file)
-        self.set_artwork_url(track.artwork_url, track.output_file)
+        self.set_extra_metadata(track.extra_metadata, track.output_file)
         self.set_artwork(artwork, track.output_file)
 
-        self.export_json("cummulative.json")
+        # self.export_json("cummulative.json")
+        sql = """INSERT INTO tracks (
+                    id,
+                    title,
+                    artist,
+                    album,
+                    albumartist,
+                    length,
+                    date,
+                    discnumber,
+                    tracknumber,
+                    download_url,
+                    artwork_url,
+                    explicit
+            ) 
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+        self.c.execute(
+            sql,
+            [track.id]
+            + list(track.metadata.values())
+            + list(track.extra_metadata.values()),
+        )
+        self.conn.commit()
 
     def album(self, id: str, output_dir: Optional[str] = None) -> None:
         sc = self.get_client()
-        name = sc.album(id)["name"]
         total = sc.album_tracks(id, limit=1)["total"]
-
-        # if not output_dir:
-        #     output_dir = f"{os.getcwd()}\\{name}"
 
         outputs = 0
         while outputs < total:
@@ -161,17 +171,12 @@ class SpotifyDownload:
 
     def playlist(self, id: str, output_dir: Optional[str] = None) -> None:
         sc = self.get_client()
-        name = sc.playlist(id)["name"]
         total = sc.playlist_items(id, limit=1)["total"]
-
-        # if not output_dir:
-        #     output_dir = f"{os.getcwd()}\\{name}"
 
         outputs = 0
         while outputs < total:
             tracks = sc.playlist_items(id, limit=10, offset=outputs)
             for track in tracks["items"]:
-                # print(track)
                 self.track(track["track"]["id"], output_dir=output_dir)
                 outputs += 1
 
@@ -196,24 +201,10 @@ class SpotifyDownload:
             audio[attribue] = value
         audio.save()
 
-    def set_download_url(self, download_url: str, output_file: str) -> None:
-        audio = MP3(output_file, ID3=ID3)
-        audio.tags["COMM:DLU:ENG"] = COMM(
-            encoding=0,
-            lang="ENG",
-            desc="download_url",
-            text=[download_url],
-        )
-        audio.save()
-
-    def set_artwork_url(self, artwork_url: str, output_file: str) -> None:
-        audio = MP3(output_file, ID3=ID3)
-        audio.tags["COMM:AWU:ENG"] = COMM(
-            encoding=0,
-            lang="ENG",
-            desc="artwork_url",
-            text=[artwork_url],
-        )
+    def set_extra_metadata(self, metadata, output_file):
+        EasyID3.RegisterTextKey("comment", "COMM")
+        audio = MP3(output_file, ID3=EasyID3)
+        audio["comment"] = str(metadata)
         audio.save()
 
     def set_artwork(self, artwork: str, output_file: str) -> None:
@@ -245,3 +236,6 @@ class SpotifyDownload:
         self.tracks = {}
         for x in data:
             self.tracks[x.id] = x
+
+    def __del__(self):
+        self.conn.close()
