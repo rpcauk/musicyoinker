@@ -24,12 +24,6 @@ class SpotifyDownload:
         client_secret: Optional[str] = None,
         redirect_uri: Optional[str] = None,
     ) -> None:
-        self._spotipy_client = self.create_client(
-            scope=scope,
-            client_id=client_id,
-            client_secret=client_secret,
-            redirect_uri=redirect_uri,
-        )
         self.tracks = {}  # TODO: Not reducing downloads
         self.artwork = {}
         self.conn = sqlite3.connect("sm.db")
@@ -54,6 +48,12 @@ class SpotifyDownload:
                 );
             """
         )
+        self._spotipy_client = self.create_client(
+            scope=scope,
+            client_id=client_id,
+            client_secret=client_secret,
+            redirect_uri=redirect_uri,
+        )
 
     def create_client(
         self,
@@ -68,6 +68,7 @@ class SpotifyDownload:
             print(f"No scopes specified!")
             sys.exit(1)
         sc_params["scope"] = scope
+        sc_params["open_browser"] = False
 
         client_ids = (client_id, os.getenv("SPOTIPY_CLIENT_ID"))
         client_ids = [x for x in client_ids if x is not None]
@@ -86,7 +87,7 @@ class SpotifyDownload:
         if client_ids:
             sc_params["redirect_uri"] = redirect_uris[0]
 
-        if len(sc_params) != 4:
+        if len(sc_params) != 5:
             print("Environment variables not set!")
             if os.name == "nt":
                 print('  $env:SPOTIPY_CLIENT_ID="<value>"')
