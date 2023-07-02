@@ -122,7 +122,7 @@ class MyMelodyDatabase:
 
     def get_track(self, id):
         sql = """
-            SELECT t.id, t.title
+            SELECT *
             FROM tracks t
             WHERE t.id = ?
         """
@@ -138,6 +138,19 @@ class MyMelodyDatabase:
         #     f"{track['title']} by {', '.join([artist['name'] for artist in track['artists']])} on {', '.join([album['title'] for album in track['albums']])}"
         # )
         return track
+
+    # def get_track_metadata(self, id):
+    #     metadata = self.get_track(id)
+    #     metadata["artist"] = "; ".join(
+    #         [artist["name"] for artist in metadata.pop("artists")]
+    #     )
+    #     metadata["albumartist"] = "; ".join(
+    #         [album["artists"]["name"] for album in metadata["albums"]]
+    #     )
+    #     metadata["album"] = "; ".join(
+    #         [album["title"] for album in metadata.pop("albums")]
+    #     )
+    #     return metadata
 
     def get_all_tracks(self):
         sql = """
@@ -192,6 +205,22 @@ class MyMelodyDatabase:
         """
         return [dict(row) for row in self.c.execute(sql, (id,)).fetchall()]
 
+    def get_album_tracks(self, id):
+        sql = """
+            SELECT at.track_id 
+            FROM album_tracks at
+            WHERE at.album_id = ?
+        """
+        return [dict(row) for row in self.c.execute(sql, (id,)).fetchall()]
+
+    def get_artist_albums(self, id):
+        sql = """
+            SELECT aa.album_id 
+            FROM album_artists aa
+            WHERE aa.artist_id = ?
+        """
+        return [dict(row) for row in self.c.execute(sql, (id,)).fetchall()]
+
     def get_track_albums(self, id):
         sql = """
             SELECT ab.id, ab.title
@@ -218,6 +247,7 @@ class MyMelodyDatabase:
                     id, offset=len(album_ids), album_type="album,single"
                 )["items"]
             ]
+            print(results)
             album_ids += results
             if len(results) != 20:
                 break

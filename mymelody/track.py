@@ -17,8 +17,11 @@ def _download_url(resp):
     artist = resp["artists"][0]["name"]
     album = resp["album"]["name"]
     title = (resp["name"],)
-    yid = ytm.search(f"{artist} {album} {title}", filter="songs")[0]["videoId"]
-    return f"m.youtube.com/watch?v={yid}"
+    try:
+        yid = ytm.search(f"{artist} {album} {title}", filter="songs")[0]["videoId"]
+        return f"m.youtube.com/watch?v={yid}"
+    except:
+        return None
 
 
 def get_track_metadata(resp):

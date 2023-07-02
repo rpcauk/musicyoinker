@@ -13,8 +13,8 @@ def initialise_db(db_name):
                 date text,
                 discnumber text,
                 tracknumber text,
-                download_url text NOT NULL,
-                artwork_url text NOT NULL,
+                download_url text,
+                artwork_url text,
                 explicit boolean NOT NULL DEFAULT 0,
                 validated boolean DEFAULT 0,
                 hidden boolean DEFAULT 0

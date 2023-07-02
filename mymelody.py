@@ -1,6 +1,8 @@
 import click
 from mymelody.to_database import MyMelodyDatabase
 from mymelody.spotipy_client import create_client
+import json
+from mymelody.download import download_track as dt
 
 default_dir = "C:\\Users\\rasthmatic\\Music"
 
@@ -12,6 +14,7 @@ def main():
 
 @main.group()
 def collect():
+    """Get data from Spotify for track, album, artist, or playlist"""
     pass
 
 
@@ -20,6 +23,13 @@ def collect():
 def collect_track(id):
     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
     mmdb.add_track(id)
+
+
+@collect.command("album")
+@click.argument("id")
+def collect_album(id):
+    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
+    mmdb.collect_album(id)
 
 
 @collect.command("artist")
@@ -31,65 +41,66 @@ def collect_artist(id):
 
 @main.group()
 def search():
+    """Search for resource (must already have data locally)"""
     pass
 
 
 @search.command("track")
 @click.argument("id")
-def search_track(id):
+@click.option("-a", "--all", is_flag=True, default=False)
+def search_track(id, all):
     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-    mmdb.get_track(id)
+    if all:
+        print(json.dumps(mmdb.get_all_tracks()))
+        # return mmdb.get_all_tracks()
+    else:
+        print(json.dumps(mmdb.get_track(id)))
+
+
+@search.command("artist")
+@click.argument("id")
+@click.option("-a", "--all", is_flag=True, default=False)
+def search_artist(id, all):
+    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
+    if all:
+        print(json.dumps(mmdb.get_all_tracks()))
+        # return mmdb.get_all_tracks()
+    else:
+        print(json.dumps(mmdb.get_artist_tracks(id)))
 
 
 @main.group()
 def download():
+    """Download resources from Spotify (must already have data locally)"""
     pass
 
 
-@download.command("artist")
+@download.command("track")
 @click.argument("id")
+def download_track(id):
+    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
+    dt(mmdb.get_track(id))
+
+
+@download.command("album")
+@click.argument("id")
+def download_album(id):
+    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
+    mmdb.collect_album(id)
+    for track in mmdb.get_album_tracks(id):
+        dt(mmdb.get_track(track["track_id"]))
+
+
+@download.command("artist")
+@click.argument("id", nargs=-1)
 def download_artist(id):
     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-    print(mmdb.get_artist_tracks(id))
-
-
-# @download.command("track")
-# @click.argument("id")
-# def download_track(id):
-
-
-# @main.command()
-# @click.argument("id")
-# def track(id):
-#     sd = SpotifyDownload("user-library-read")
-#     sd.track(id, default_dir)
-#     sd.export_json(f"{id}.json")
-#     # print(id)
-
-
-# @main.command()
-# @click.argument("id")
-# def album(id):
-#     sd = SpotifyDownload("user-library-read")
-#     sd.album(id, default_dir)
-#     # print(id)
-
-
-# @main.command()
-# @click.argument("id")
-# def artist(id):
-#     sd = SpotifyDownload("user-library-read")
-#     albums = []
-#     while True:
-#         results = sd.get_client().artist_albums(
-#             id, offset=len(albums), album_type="album,single"
-#         )["items"]
-#         albums += results
-#         if len(results) != 20:
-#             break
-#     for album in albums:
-#         sd.album(album["uri"].split(":")[-1], default_dir)
-#     sd.export_json(f"{id}.json")
+    for artist_id in id:
+        mmdb.collect_artist(artist_id)
+        for album in mmdb.get_artist_albums(artist_id):
+            mmdb.collect_album(album["album_id"])
+            for track in mmdb.get_album_tracks(album["album_id"]):
+                dt(mmdb.get_track(track["track_id"]))
 
 
 if __name__ == "__main__":

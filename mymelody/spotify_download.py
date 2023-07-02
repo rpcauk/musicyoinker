@@ -64,27 +64,27 @@ class SpotifyDownload:
         self.set_extra_metadata(track.extra_metadata, track.output_file)
         self.set_artwork(artwork, track.output_file)
 
-    def album(self, id: str, output_dir: Optional[str] = None) -> None:
-        sc = self.get_client()
-        total = sc.album_tracks(id, limit=1)["total"]
+    # def album(self, id: str, output_dir: Optional[str] = None) -> None:
+    #     sc = self.get_client()
+    #     total = sc.album_tracks(id, limit=1)["total"]
 
-        outputs = 0
-        while outputs < total:
-            tracks = sc.album_tracks(id, limit=10, offset=outputs)
-            for track in tracks["items"]:
-                self.track(track["id"], output_dir=output_dir)
-                outputs += 1
+    #     outputs = 0
+    #     while outputs < total:
+    #         tracks = sc.album_tracks(id, limit=10, offset=outputs)
+    #         for track in tracks["items"]:
+    #             self.track(track["id"], output_dir=output_dir)
+    #             outputs += 1
 
-    def playlist(self, id: str, output_dir: Optional[str] = None) -> None:
-        sc = self.get_client()
-        total = sc.playlist_items(id, limit=1)["total"]
+    # def playlist(self, id: str, output_dir: Optional[str] = None) -> None:
+    #     sc = self.get_client()
+    #     total = sc.playlist_items(id, limit=1)["total"]
 
-        outputs = 0
-        while outputs < total:
-            tracks = sc.playlist_items(id, limit=10, offset=outputs)
-            for track in tracks["items"]:
-                self.track(track["track"]["id"], output_dir=output_dir)
-                outputs += 1
+    #     outputs = 0
+    #     while outputs < total:
+    #         tracks = sc.playlist_items(id, limit=10, offset=outputs)
+    #         for track in tracks["items"]:
+    #             self.track(track["track"]["id"], output_dir=output_dir)
+    #             outputs += 1
 
     def download(self, download_url: str, output_file: str) -> None:
         ydl_opts = {
