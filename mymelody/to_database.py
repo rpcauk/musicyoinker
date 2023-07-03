@@ -5,9 +5,10 @@ from mymelody.spotipy_client import create_client
 from mymelody.track import get_track_metadata
 from mymelody.album import get_album_metadata
 from mymelody.artist import get_artist_metadata
+from mymelody.database_connection import Singleton
 
 
-class MyMelodyDatabase:
+class MyMelodyDatabase(metaclass=Singleton):
     def __init__(self, spotipy_client) -> None:
         initialise_db("mm.db")
         self.conn = sqlite3.connect("mm.db")
@@ -18,32 +19,36 @@ class MyMelodyDatabase:
     def __del__(self):
         self.conn.close()
 
+    ############################################################################
+    # ADD TO DATABASE                                                          #
+    ############################################################################
     def add_track(self, id: str) -> None:
-        track_data = self.spotipy_client.track(id)
         db_data = self.c.execute(
             "SELECT title FROM tracks WHERE id = ?", (id,)
         ).fetchone()
-        if db_data is None:
-            track = get_track_metadata(track_data)
-            print(f"Collecting track {track['title']} ...")
+        if db_data:
+            # TODO: Return Track object
+            return None
+        track_data = self.spotipy_client.track(id)
+        track = get_track_metadata(track_data)
+        print(f"Collecting track {track['title']} ...")
 
-            sql = """
-                INSERT INTO tracks (
-                    id,
-                    title,
-                    length,
-                    date,
-                    discnumber,
-                    tracknumber,
-                    download_url,
-                    artwork_url,
-                    explicit
-                ) 
-                VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+        sql = """
+            INSERT INTO tracks (
+                id,
+                title,
+                length,
+                date,
+                discnumber,
+                tracknumber,
+                download_url,
+                artwork_url,
+                explicit
+            ) 
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)"""
 
-            self.c.execute(sql, list(track.values()))
-            self.conn.commit()
-
+        self.c.execute(sql, list(track.values()))
+        self.conn.commit()
         self.add_album(track_data["album"]["id"])
         album_tracks_sql = """
             INSERT OR IGNORE INTO album_tracks (
@@ -120,6 +125,9 @@ class MyMelodyDatabase:
             self.c.execute(sql, list(artist.values()))
             self.conn.commit()
 
+    ############################################################################
+    # Retrieve                                                                 #
+    ############################################################################
     def get_track(self, id):
         sql = """
             SELECT *
@@ -132,25 +140,7 @@ class MyMelodyDatabase:
         track["albums"] = self.get_track_albums(id)
         for album in track["albums"]:
             album["artists"] = self.get_album_artists(album["id"])
-        # print(json.dumps(track, indent=4))
-
-        # print(
-        #     f"{track['title']} by {', '.join([artist['name'] for artist in track['artists']])} on {', '.join([album['title'] for album in track['albums']])}"
-        # )
         return track
-
-    # def get_track_metadata(self, id):
-    #     metadata = self.get_track(id)
-    #     metadata["artist"] = "; ".join(
-    #         [artist["name"] for artist in metadata.pop("artists")]
-    #     )
-    #     metadata["albumartist"] = "; ".join(
-    #         [album["artists"]["name"] for album in metadata["albums"]]
-    #     )
-    #     metadata["album"] = "; ".join(
-    #         [album["title"] for album in metadata.pop("albums")]
-    #     )
-    #     return metadata
 
     def get_all_tracks(self):
         sql = """
@@ -247,18 +237,28 @@ class MyMelodyDatabase:
                     id, offset=len(album_ids), album_type="album,single"
                 )["items"]
             ]
-            print(results)
             album_ids += results
             if len(results) != 20:
                 break
         for album_id in album_ids:
             self.collect_album(album_id)
 
+    def validate_track(self, id, download_url):
+        if download_url:
+            sql_download_url = """
+                UPDATE tracks
+                SET download_url = ?
+                WHERE id = ?;
+            """
+            self.c.execute(sql_download_url, (download_url, id))
+        sql_validate = """
+            UPDATE tracks
+            SET validated = 1
+            WHERE id = ?;
+        """
+        self.c.execute(sql_validate, (id,))
+        self.conn.commit()
+
 
 if __name__ == "__main__":
     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-    # mmdb.add_track("6dGnYIeXmHdcikdzNNDMm2")
-    # mmdb.add_track("2M4tVhRXucLE9M3STv21Yi")
-    # mmdb.get_track("2M4tVhRXucLE9M3STv21Yi")
-    mmdb.actually_add_album("3lS1y25WAhcqJDATJK70Mq")
-    mmdb.get_all_tracks()
