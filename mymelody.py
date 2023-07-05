@@ -4,6 +4,7 @@ from mymelody.spotipy_client import create_client
 import json
 from mymelody.download import download_track as dt
 import os
+from mymelody.spotify_object import Track, Album, Artist
 
 default_dir = "C:\\Users\\rasthmatic\\Music"
 
@@ -77,32 +78,30 @@ def download():
 
 
 @download.command("track")
-@click.argument("id")
-def download_track(id):
-    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-    mmdb.add_track(id)
-    dt(mmdb.get_track(id))
+@click.argument("ids", nargs=-1)
+@click.option("-v", "--validate", is_flag=True, default=False)
+def download_track(ids, validate):
+    for id in ids:
+        track = Track(id)
+        track.download(validate=validate)
 
 
 @download.command("album")
-@click.argument("id")
-def download_album(id):
-    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-    mmdb.collect_album(id)
-    for track in mmdb.get_album_tracks(id):
-        dt(track["track_id"])
+@click.argument("ids", nargs=-1)
+@click.option("-v", "--validate", is_flag=True, default=False)
+def download_album(ids, validate):
+    for id in ids:
+        album = Album(id)
+        album.download(validate=validate)
 
 
 @download.command("artist")
-@click.argument("id", nargs=-1)
-def download_artist(id):
-    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-    for artist_id in id:
-        mmdb.collect_artist(artist_id)
-        for album in mmdb.get_artist_albums(artist_id):
-            mmdb.collect_album(album["album_id"])
-            for track in mmdb.get_album_tracks(album["album_id"]):
-                dt(track["track_id"])
+@click.argument("ids", nargs=-1)
+@click.option("-v", "--validate", is_flag=True, default=False)
+def download_artist(ids, validate):
+    for id in ids:
+        artist = Artist(id)
+        artist.download(validate=validate)
 
 
 @main.group()

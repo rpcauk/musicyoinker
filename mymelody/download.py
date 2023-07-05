@@ -89,15 +89,15 @@ def download_track(track_data):
     print({d: v for d, v in track_data.items() if d not in exclude_keys})
 
 
-def download(download_url: str, output_file: str, file_type: str) -> None:
+def download(download_url: str, output_file: str) -> None:
     ydl_opts = {
-        "format": f"{file_type}/bestaudio/best",
+        "format": "mp3/bestaudio/best",
         "outtmpl": f"{output_file}.%(ext)s",
         "quiet": True,
         "no_warnings": True,
         "extractor_retries": 3,
         "postprocessors": [
-            {"key": "FFmpegExtractAudio", "preferredcodec": f"{file_type}"},
+            {"key": "FFmpegExtractAudio", "preferredcodec": "mp3"},
         ],
     }
 
@@ -119,13 +119,13 @@ def set_extra_metadata(metadata, output_file):
     audio.save()
 
 
-def set_artwork(artwork: str, output_file: str) -> None:
+def set_artwork(artwork_url: str, output_file: str) -> None:
     audio = MP3(output_file, ID3=ID3)
     audio.tags["APIC"] = APIC(
         encoding=0,
         mime="image/jpeg",
         type=3,
         desc="Cover",
-        data=artwork,
+        data=requests.get(artwork_url).content,
     )
     audio.save()
