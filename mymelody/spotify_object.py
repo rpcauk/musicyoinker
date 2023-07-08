@@ -5,6 +5,7 @@ import re
 import os
 import pathlib
 from mymelody.download import download, set_artwork, set_metadata
+import json
 
 
 class SpotifyObject(ABC):
@@ -97,6 +98,9 @@ class Track(SpotifyObject):
         if download:
             self.download()
 
+    def data(self) -> str:
+        return self.metadata
+
 
 class Album(SpotifyObject):
     def __init__(self, id):
@@ -118,6 +122,12 @@ class Album(SpotifyObject):
     def validate(self, download=False):
         for track in self.tracks:
             track.validate(download=download)
+
+    def data(self, only_album=False):
+        if only_album:
+            return self.metadata
+        tracks_json = [track.data() for track in self.tracks]
+        return {**self.metadata, "tracks": tracks_json}
 
 
 class Artist(SpotifyObject):
@@ -142,3 +152,12 @@ class Artist(SpotifyObject):
     def validate(self, download=False):
         for album in self.albums:
             album.validate(download=download)
+
+    def data(self, only_artist=False, only_albums=False):
+        if only_artist:
+            return self.metadata
+        if only_albums:
+            album_data = [album.data(only_album=only_albums) for album in self.albums]
+        else:
+            album_data = [album.data() for album in self.albums]
+        return {**self.metadata, "albums": album_data}

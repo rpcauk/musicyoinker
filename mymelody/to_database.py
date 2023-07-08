@@ -157,19 +157,22 @@ class MyMelodyDatabase(metaclass=Singleton):
 
     def get_artist(self, id):
         album_ids = []
-        while True:
-            results = [
-                str(album["id"])
-                for album in self.spotipy_client.artist_albums(
-                    id,
-                    limit=50,
-                    offset=len(album_ids),
-                    album_type="album,single,compilation",
-                )["items"]
-            ]
-            album_ids += results
-            if len(results) != 50:
-                break
+        for album_type in ("album", "single", "compilation"):
+            album_type_ids = []
+            while True:
+                results = [
+                    str(album["id"])
+                    for album in self.spotipy_client.artist_albums(
+                        id,
+                        limit=20,
+                        offset=len(album_type_ids),
+                        album_type=album_type,
+                    )["items"]
+                ]
+                album_type_ids += results
+                if len(results) != 20:
+                    break
+            album_ids += album_type_ids
 
         for album_id in album_ids:
             self.get_album(album_id)
