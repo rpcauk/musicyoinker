@@ -41,7 +41,8 @@ class MyMelodyDatabase(metaclass=Singleton):
                 artwork_url,
                 explicit
             ) 
-            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
 
         self.c.execute(sql, list(track.values()))
         self.conn.commit()
@@ -94,10 +95,7 @@ class MyMelodyDatabase(metaclass=Singleton):
                     explicit
                 ) 
                 VALUES(?, ?, ?, ?, ?, ?)"""
-            self.c.execute(
-                sql,
-                list(album_data.values()),
-            )
+            self.c.execute(sql, list(album_data.values()))
             self.conn.commit()
 
         for artist in album["artists"]:
@@ -117,7 +115,7 @@ class MyMelodyDatabase(metaclass=Singleton):
             "SELECT name FROM artists WHERE id = ?", (artist["id"],)
         ).fetchone()
         if db_data is None:
-            # artist_data = self.spotipy_client.artist(artist["id"])
+            artist_data = self.spotipy_client.artist(artist["id"])
             artist_data = get_artist_metadata(artist)
             print(f"Collecting artist {artist['name']} ...")
             sql = """
@@ -131,31 +129,107 @@ class MyMelodyDatabase(metaclass=Singleton):
             self.conn.commit()
 
     ############################################################################
-    # Get                                                                      #
+    # Manual Add                                                               #
     ############################################################################
-    def get_track(self, id):
-        track = self.c.execute("SELECT * FROM tracks WHERE id = ?", (id,)).fetchone()
-
+    def manual_add_track(self, id, data):
+        track = self.get_track(id)
         if track:
-            track = dict(track)
-            track["artists"] = self.get_track_artists(id)
-            track["album"] = self.get_track_album(id)
-            track["album"]["artists"] = self.get_album_artists(track["album"]["id"])
-            return track
-        else:
-            return self.add_track(id)
+            raise Exception(f"Track {dict(track)['title']} already exists [id: {id}]")
+        album = data.pop("album")
+        artists = data.pop("artists")
+        track_sql = """
+            INSERT INTO tracks (
+                id,
+                title,
+                length,
+                date,
+                discnumber,
+                tracknumber,
+                download_url,
+                artwork_url,
+                explicit,
+                validated
+            ) 
+            VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
+        self.c.execute(track_sql, list(data.values()))
+        self.conn.commit()
 
-    def get_album(self, id):
+        album_tracks_sql = """
+            INSERT INTO album_tracks (
+                track_id,
+                album_id
+            )
+            VALUES(?, ?)
+        """
+        self.c.execute(album_tracks_sql, (id, album))
+        self.conn.commit()
+
+        for artist in artists:
+            # Add link between track and artists
+            track_artists_sql = """
+                INSERT INTO track_artists (
+                    track_id,
+                    artist_id
+                )
+                VALUES(?,?)
+            """
+            self.c.execute(track_artists_sql, (id, artist))
+            self.conn.commit()
+        return self.get_track(id)
+
+    def manual_add_album(self, id, data):
+        album = self.get_album(id)
+        if album:
+            raise Exception(f"Album {dict(album)['title']} already exists [id: {id}]")
+        artists = data.pop("artists")
+        album_sql = """
+            INSERT INTO albums (
+                id,
+                title,
+                date,
+                total_tracks,
+                artwork_url,
+                explicit
+            ) 
+            VALUES(?, ?, ?, ?, ?, ?)
+        """
+        self.c.execute(album_sql, list(data.values()))
+        self.conn.commit()
+        for artist in artists:
+            album_artists_sql = """
+                INSERT OR IGNORE INTO album_artists (
+                    album_id,
+                    artist_id
+                )
+                VALUES(?,?)
+            """
+            self.c.execute(album_artists_sql, (id, artist))
+            self.conn.commit()
+        return self.get_album(id)
+
+    ############################################################################
+    # Collect                                                                  #
+    ############################################################################
+    def collect_track(self, id):
+        track = self.get_track(id)
+        if track is None:
+            return self.add_track(id)
+        return track
+
+    def collect_album(self, id):
+        album = self.get_album(id)
+        if album is not None:
+            if album["total_tracks"] == len(album["tracks"]):
+                return album
         album_tracks = [
             str(track["id"]) for track in self.spotipy_client.album_tracks(id)["items"]
         ]
         for track_id in album_tracks:
-            self.get_track(track_id)
-        return dict(
-            self.c.execute("SELECT * FROM albums WHERE id = ?", (id,)).fetchone()
-        )
+            self.collect_track(track_id)
+        return self.get_album(id)
 
-    def get_artist(self, id):
+    def collect_artist(self, id):
         album_ids = []
         for album_type in ("album", "single", "compilation"):
             album_type_ids = []
@@ -175,10 +249,37 @@ class MyMelodyDatabase(metaclass=Singleton):
             album_ids += album_type_ids
 
         for album_id in album_ids:
-            self.get_album(album_id)
-        return dict(
-            self.c.execute("SELECT * FROM artists WHERE id = ?", (id,)).fetchone()
-        )
+            self.collect_album(album_id)
+        return self.get_artist(id)
+
+    ############################################################################
+    # Get                                                                      #
+    ############################################################################
+
+    def get_track(self, id):
+        track = self.c.execute("SELECT * FROM tracks WHERE id = ?", (id,)).fetchone()
+        if track:
+            track = dict(track)
+            track["artists"] = self.get_track_artists(id)
+            track["album"] = self.get_track_album(id)
+            track["album"]["artists"] = self.get_album_artists(track["album"]["id"])
+            return track
+
+    def get_album(self, id):
+        album = self.c.execute("SELECT * FROM albums WHERE id = ?", (id,)).fetchone()
+        if album:
+            album = dict(album)
+            album["artists"] = self.get_album_artists(id)
+            album["tracks"] = self.get_album_tracks(id)
+            return album
+
+    def get_artist(self, id):
+        artist = self.c.execute("SELECT * FROM artists WHERE id = ?", (id,)).fetchone()
+        if artist:
+            artist = dict(artist)
+            artist["albums"] = self.get_artist_albums(id)
+            artist["tracks"] = self.get_artist_tracks(id)
+            return artist
 
     # def get_all_tracks(self):
     #     sql = """
@@ -195,23 +296,14 @@ class MyMelodyDatabase(metaclass=Singleton):
 
     def get_artist_tracks(self, id):
         sql = """
-            SELECT DISTINCT t.id, t.title
-            FROM tracks t
-            JOIN track_artists ta on ta.track_id = t.id
-            JOIN artists a on ta.artist_id = a.id
-            JOIN album_tracks at on at.track_id = t.id
-            JOIN albums ab on at.album_id = ab.id
-            JOIN album_artists aa on aa.album_id = ab.id
-            JOIN artists aba on aa.artist_id = aba.id
-            WHERE a.id = ?
+            SELECT tracks.id, tracks.title
+            FROM track_artists
+            JOIN tracks
+            ON track_artists.track_id = tracks.id
+            WHERE track_artists.artist_id = ?
         """
 
-        return [
-            self.get_track(track_id)
-            for track_id in [
-                dict(track)["id"] for track in self.c.execute(sql, (id,)).fetchall()
-            ]
-        ]
+        return [dict(track) for track in self.c.execute(sql, (id,)).fetchall()]
 
     def get_track_artists(self, id):
         sql = """
@@ -235,27 +327,31 @@ class MyMelodyDatabase(metaclass=Singleton):
 
     def get_album_tracks(self, id):
         sql = """
-            SELECT at.track_id 
-            FROM album_tracks at
-            WHERE at.album_id = ?
+            SELECT tracks.id, tracks.title
+            FROM album_tracks
+            JOIN tracks
+            ON album_tracks.track_id = tracks.id
+            WHERE album_tracks.album_id = ?
         """
-        return [dict(row)["track_id"] for row in self.c.execute(sql, (id,)).fetchall()]
+        return [dict(row) for row in self.c.execute(sql, (id,)).fetchall()]
 
     def get_artist_albums(self, id):
         sql = """
-            SELECT aa.album_id 
-            FROM album_artists aa
-            WHERE aa.artist_id = ?
+            SELECT albums.id, albums.title 
+            FROM album_artists
+            JOIN albums
+            ON album_artists.album_id = albums.id
+            WHERE album_artists.artist_id = ?
         """
-        return [dict(row)["album_id"] for row in self.c.execute(sql, (id,)).fetchall()]
+        return [dict(row) for row in self.c.execute(sql, (id,)).fetchall()]
 
     def get_track_album(self, id):
         sql = """
-            SELECT ab.id, ab.title
-            FROM tracks t
-            JOIN album_tracks at on at.track_id = t.id
-            JOIN albums ab on at.album_id = ab.id
-            WHERE t.id = ?
+            SELECT albums.id, albums.title
+            FROM album_tracks
+            JOIN albums
+            ON album_tracks.album_id = albums.id
+            WHERE album_tracks.track_id = ?
         """
         return [dict(row) for row in self.c.execute(sql, (id,)).fetchall()][0]
 
@@ -285,6 +381,64 @@ class MyMelodyDatabase(metaclass=Singleton):
         """
         self.c.execute(sql_validate, (id,))
         self.conn.commit()
+
+    ############################################################################
+    # Update                                                                   #
+    ############################################################################
+
+    def update_track(self, id, values):
+        album = values.pop("album")
+        artists = values.pop("artists")
+
+        if album:
+            self.c.execute(
+                f"UPDATE album_tracks SET album_id = ? WHERE track_id = ?", (album, id)
+            )
+            self.conn.commit()
+        if artists:
+            for artist in artists:
+                self.c.execute(
+                    f"UPDATE track_artists SET artist_id = ? WHERE track_id = ?",
+                    (artist, id),
+                )
+            self.conn.commit()
+        for k, v in values.items():
+            if v is None:
+                continue
+            self.c.execute(f"UPDATE tracks SET {k} = ? WHERE id = ?", (v, id))
+            self.conn.commit()
+        return self.get_track(id)
+
+    def update_album(self, id, values):
+        for k, v in values.items():
+            if v is None:
+                continue
+            self.c.execute(f"UPDATE albums SET {k} = ? WHERE id = ?", (v, id))
+            self.conn.commit()
+        return self.get_album(id)
+
+    def update_artist(self, id, values):
+        for k, v in values.items():
+            if v is None:
+                continue
+            self.c.execute(f"UPDATE artists SET {k} = ? WHERE id = ?", (v, id))
+            self.conn.commit()
+        return self.get_album(id)
+
+    ############################################################################
+    # Delte                                                                    #
+    ############################################################################
+
+    def delete_track(self, id):
+        track = self.get_track(id)
+        if track:
+            self.c.execute("DELETE FROM tracks WHERE id = ?", (id,))
+            self.c.execute("DELETE FROM album_tracks WHERE track_id = ?", (id,))
+            self.c.execute("DELETE FROM track_artists WHERE track_id = ?", (id,))
+            self.conn.commit()
+            print(f"Track {track['title']} [{id}] deleted successfullly")
+        else:
+            print(f"Could not find Track with ID {id}")
 
 
 if __name__ == "__main__":
