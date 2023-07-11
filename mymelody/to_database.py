@@ -208,6 +208,21 @@ class MyMelodyDatabase(metaclass=Singleton):
             self.conn.commit()
         return self.get_album(id)
 
+    def manual_add_artist(self, id, data):
+        artist = self.get_artist(id)
+        if artist:
+            raise Exception(f"Artist {dict(artist)['name']} already exists [id: {id}]")
+        artist_sql = """
+            INSERT INTO albums (
+                id,
+                name,
+                artwork_url
+            ) 
+            VALUES(?, ?, ?)
+        """
+        self.c.execute(artist, list(data.values()))
+        self.conn.commit()
+
     ############################################################################
     # Collect                                                                  #
     ############################################################################
@@ -387,21 +402,31 @@ class MyMelodyDatabase(metaclass=Singleton):
     ############################################################################
 
     def update_track(self, id, values):
-        album = values.pop("album")
-        artists = values.pop("artists")
-
-        if album:
-            self.c.execute(
-                f"UPDATE album_tracks SET album_id = ? WHERE track_id = ?", (album, id)
-            )
-            self.conn.commit()
-        if artists:
-            for artist in artists:
+        if "album" in values:
+            album = values.pop("album")
+            if album is not None:
                 self.c.execute(
-                    f"UPDATE track_artists SET artist_id = ? WHERE track_id = ?",
-                    (artist, id),
+                    f"UPDATE album_tracks SET album_id = ? WHERE track_id = ?",
+                    (album, id),
                 )
-            self.conn.commit()
+                self.conn.commit()
+        if "artists" in values:
+            artists = values.pop("artists")
+            if artists is not None:
+                for artist in artists:
+                    self.c.execute(
+                        f"UPDATE track_artists SET artist_id = ? WHERE track_id = ?",
+                        (artist, id),
+                    )
+                self.conn.commit()
+        if "hidden" in values:
+            hidden = values.pop("hidden")
+            if hidden is not None:
+                self.c.execute(
+                    f"UPDATE tracks SET hidden = ? WHERE id = ?",
+                    (int(hidden), id),
+                )
+                self.conn.commit()
         for k, v in values.items():
             if v is None:
                 continue
@@ -410,6 +435,15 @@ class MyMelodyDatabase(metaclass=Singleton):
         return self.get_track(id)
 
     def update_album(self, id, values):
+        if "hidden" in values:
+            hidden = values.pop("hidden")
+            if hidden is not None:
+                for track in self.get_album_tracks(id):
+                    self.update_track(track["id"], {"hidden": int(hidden)})
+        if "artwork_url" in values:
+            artwork_url = values.pop("artwork_url")
+            for track in self.get_album_tracks(id):
+                self.update_track(track["id"], {"artwork_url": artwork_url})
         for k, v in values.items():
             if v is None:
                 continue
@@ -438,7 +472,17 @@ class MyMelodyDatabase(metaclass=Singleton):
             self.conn.commit()
             print(f"Track {track['title']} [{id}] deleted successfullly")
         else:
-            print(f"Could not find Track with ID {id}")
+            raise Exception(f"Could not find Track with ID {id}")
+
+    def delete_album(self, id):
+        album = self.get_album(id)
+        if album:
+            for track in album["tracks"]:
+                self.delete_track(track["id"])
+            self.c.execute("DELETE FROM albums WHERE id = ?", (id,))
+            self.c.execute("DELETE FROM album_artists WHERE album_id = ?", (id,))
+            self.conn.commit()
+            print(f"Album {album['title']} [{id}] deleted successfullly")
 
 
 if __name__ == "__main__":

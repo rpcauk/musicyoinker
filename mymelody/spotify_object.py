@@ -116,8 +116,10 @@ class Track(SpotifyObject):
         if download:
             self.download()
 
-    def data(self, simplify=[]) -> str:
-        if "all" in simplify:
+    def data(self, simple=False) -> str:
+        if self.metadata["hidden"]:
+            return {}
+        if simple:
             return {"id": self.id, "title": self.metadata["title"]}
         return self.metadata
 
@@ -149,42 +151,57 @@ class Album(SpotifyObject):
     def _get_tracks(self):
         return [Track(track["id"]) for track in self.metadata["tracks"]]
 
-    # def collect(self):
-    #     self.metadata = self.db.collect_album(self.id)
-    #     self.metadata["tracks"] = self._get_tracks()
-    #     return self.data()
-
-    def download(self, validate=True):
+    def download(self, validate=True, all=False):
         for track in self.metadata["tracks"]:
+            if not all and track.metadata["hidden"]:
+                continue
             track.download(validate=validate)
 
     def validate(self, download=False):
         for track in self.metadata["tracks"]:
             track.validate(download=download)
 
-    def data(self, simplify=[]):
+    def data(self, simple=False, artists=False, tracks=False):
         data = self.metadata
-        if "all" in simplify:
-            return {"id": data["title"], "name": data["title"]}
-        data["tracks"] = [
-            track.data(simplify=["all" for k in simplify if k == "tracks"])
-            for track in data["tracks"]
-        ]
+        if simple:
+            return {"id": self.id, "title": self.metadata["title"]}
+        if not artists:
+            data.pop("artists")
+        if not tracks:
+            data.pop("tracks")
+        else:
+            data["tracks"] = list(
+                filter(
+                    bool,
+                    [track.data(simple=True) for track in data["tracks"]],
+                )
+            )
         return data
 
     def update(self, values):
         return self.db.update_album(self.id, values)
 
+    def delete(self):
+        self.db.delete_album(self.id)
+        self.metadata = {}
+
 
 class Artist(SpotifyObject):
-    def __init__(self, id):
+    def __init__(self, id, collect=False, data={}):
         super().__init__(id)
-        self.metadata = self._get_metadata()
+        if data:
+            self.metadata = self._set_metadata(self.db.manual_add_artist(id, data))
+        elif collect:
+            self.metadata = self._set_metadata(self.db.collect_artist(id))
+        else:
+            self.metadata = self._set_metadata(self.db.get_artist(id))
+        if not self.metadata:
+            raise RetrievalException(f"Could not retrieve Artist [{id}]")
         self.metadata["albums"] = self._get_albums()
         self.metadata["tracks"] = self._get_tracks()
 
-    def _get_metadata(self):
-        return self.db.get_artist(self.id)
+    def _set_metadata(self, metadata):
+        return metadata
 
     def _get_albums(self):
         return [Album(album["id"]) for album in self.metadata["albums"]]
@@ -198,28 +215,30 @@ class Artist(SpotifyObject):
         self.metadata["tracks"] = self._get_tracks()
         return self.data()
 
-    def download(self, validate=True, collect=False):
-        if collect:
-            self.collect()
-        for album in self.albums:
-            album.download(validate=validate)
+    def download(self, validate=True):
+        for track in self.metadata["tracks"]:
+            if not bool(track.metadata["hidden"]):
+                track.download(validate=validate)
 
     def validate(self, download=False):
-        for album in self.albums:
-            album.validate(download=download)
+        for track in self.metadata["tracks"]:
+            track.validate(download=download)
 
-    def data(self, simplify=[]):
+    def data(self, albums=False, tracks=False):
         data = self.metadata
-        if "all" in simplify:
-            return {"id": data["id"], "name": data["name"]}
-        data["tracks"] = [
-            track.data(simplify=["all" for k in simplify if k == "tracks"])
-            for track in data["tracks"]
-        ]
-        data["albums"] = [
-            album.data(simplify=["all" for k in simplify if k == "albums"])
-            for album in data["albums"]
-        ]
+        if not albums:
+            data.pop("albums")
+        else:
+            data["albums"] = [album.data(simple=True) for album in data["albums"]]
+        if not tracks:
+            data.pop("tracks")
+        else:
+            data["tracks"] = list(
+                filter(
+                    bool,
+                    [track.data(simple=True) for track in data["tracks"]],
+                )
+            )
         return data
 
     def update(self, values):

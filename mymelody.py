@@ -17,64 +17,64 @@ def main():
 ################################################################################
 # Collect                                                                      #
 ################################################################################
-@main.group()
-def collect():
-    """Get data from Spotify for track, album, artist, or playlist"""
-    pass
+# @main.group()
+# def collect():
+#     """Get data from Spotify for track, album, artist, or playlist"""
+#     pass
 
 
-@collect.command("track")
-@click.argument("id")
-def collect_track(id):
-    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-    mmdb.add_track(id)
+# @collect.command("track")
+# @click.argument("id")
+# def collect_track(id):
+#     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
+#     mmdb.add_track(id)
 
 
-@collect.command("album")
-@click.argument("id")
-def collect_album(id):
-    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-    mmdb.collect_album(id)
+# @collect.command("album")
+# @click.argument("id")
+# def collect_album(id):
+#     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
+#     mmdb.collect_album(id)
 
 
-@collect.command("artist")
-@click.argument("id")
-def collect_artist(id):
-    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-    mmdb.collect_artist(id)
+# @collect.command("artist")
+# @click.argument("id")
+# def collect_artist(id):
+#     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
+#     mmdb.collect_artist(id)
 
 
 ################################################################################
 # Search                                                                       #
 ################################################################################
-@main.group()
-def search():
-    """Search for resource (must already have data locally)"""
-    pass
+# @main.group()
+# def search():
+#     """Search for resource (must already have data locally)"""
+#     pass
 
 
-@search.command("track")
-@click.argument("id")
-@click.option("-a", "--all", is_flag=True, default=False)
-def search_track(id, all):
-    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-    if all:
-        print(json.dumps(mmdb.get_all_tracks()))
-        # return mmdb.get_all_tracks()
-    else:
-        print(json.dumps(mmdb.get_track(id)))
+# @search.command("track")
+# @click.argument("id")
+# @click.option("-a", "--all", is_flag=True, default=False)
+# def search_track(id, all):
+#     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
+#     if all:
+#         print(json.dumps(mmdb.get_all_tracks()))
+#         # return mmdb.get_all_tracks()
+#     else:
+#         print(json.dumps(mmdb.get_track(id)))
 
 
-@search.command("artist")
-@click.argument("id")
-@click.option("-a", "--all", is_flag=True, default=False)
-def search_artist(id, all):
-    mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-    if all:
-        print(json.dumps(mmdb.get_all_tracks()))
-        # return mmdb.get_all_tracks()
-    else:
-        print(json.dumps(mmdb.get_artist_tracks(id)))
+# @search.command("artist")
+# @click.argument("id")
+# @click.option("-a", "--all", is_flag=True, default=False)
+# def search_artist(id, all):
+#     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
+#     if all:
+#         print(json.dumps(mmdb.get_all_tracks()))
+#         # return mmdb.get_all_tracks()
+#     else:
+#         print(json.dumps(mmdb.get_artist_tracks(id)))
 
 
 ################################################################################
@@ -89,29 +89,32 @@ def download():
 @download.command("track")
 @click.argument("ids", nargs=-1)
 @click.option("-f", "--force", is_flag=True, default=False)
-@click.option("-v", "--validate", is_flag=True, default=False)
-def download_track(ids, force, validate):
+@click.option("--validate", is_flag=True, default=False)
+@click.option("--collect", is_flag=True, default=False)
+def download_track(ids, force, validate, collect):
     for id in ids:
-        track = Track(id)
+        track = Track(id, collect=collect)
         track.download(force=force, validate=validate)
 
 
 @download.command("album")
 @click.argument("ids", nargs=-1)
-@click.option("-v", "--validate", is_flag=True, default=False)
-def download_album(ids, validate):
+@click.option("--validate", is_flag=True, default=False)
+@click.option("--collect", is_flag=True, default=False)
+@click.option("--all", is_flag=True, default=False)
+def download_album(ids, validate, collect, all):
     for id in ids:
-        album = Album(id)
-        album.download(validate=validate)
+        album = Album(id, collect=collect)
+        album.download(validate=validate, all=all)
 
 
 @download.command("artist")
 @click.argument("ids", nargs=-1)
-@click.option("-v", "--validate", is_flag=True, default=False)
-def download_artist(ids, validate):
+@click.option("--validate", is_flag=True, default=False)
+@click.option("--collect", is_flag=True, default=False)
+def download_artist(ids, validate, collect):
     for id in ids:
-        artist = Artist(id)
-        download
+        artist = Artist(id, collect=collect)
         artist.download(validate=validate)
 
 
@@ -168,7 +171,6 @@ def add_track(
     album,
     artists,
 ):
-    print(explicit)
     values = OrderedDict(
         id=id,
         title=title,
@@ -238,28 +240,20 @@ def get_track(id):
 
 @get.command("album")
 @click.argument("id")
-@click.option(
-    "--simplify",
-    type=click.Choice(["tracks"]),
-    multiple=True,
-    required=False,
-)
-def get_album(id, simplify=[]):
+@click.option("--artists", is_flag=True, default=False)
+@click.option("--tracks", is_flag=True, default=False)
+def get_album(id, artists, tracks):
     album = Album(id)
-    print(json.dumps(album.data(simplify=simplify)))
+    print(json.dumps(album.data(artists=artists, tracks=tracks)))
 
 
 @get.command("artist")
 @click.argument("id")
-@click.option(
-    "--simplify",
-    type=click.Choice(["albums", "tracks"]),
-    multiple=True,
-    required=False,
-)
-def get_artist(id, simplify=[]):
+@click.option("--albums", is_flag=True, default=False)
+@click.option("--tracks", is_flag=True, default=False)
+def get_artist(id, albums, tracks):
     artist = Artist(id)
-    print(json.dumps(artist.data(simplify=simplify)))
+    print(json.dumps(artist.data(albums=albums, tracks=tracks)))
 
 
 ################################################################################
@@ -279,7 +273,7 @@ def update():
 @click.option("--download-url", required=False)
 @click.option("--artwork-url", required=False)
 @click.option("--explicit", required=False)
-@click.option("--hidden", required=False)
+@click.option("--hidden", default=None, required=False)
 @click.option("--album", required=False)
 @click.option("--artists", multiple=True, required=False)
 def update_track(
@@ -318,19 +312,21 @@ def update_track(
 @click.option("--total-tracks", required=False)
 @click.option("--artwork-url", required=False)
 @click.option("--explicit", required=False)
-def update_album(id, title, date, total_tracks, artwork_url, explicit):
+@click.option("--hidden", default=None, required=False)
+def update_album(id, title, date, total_tracks, artwork_url, explicit, hidden):
     values = {
         "title": title,
         "date": date,
         "total_tracks": total_tracks,
         "artwork_url": artwork_url,
         "explicit": explicit,
+        "hidden": hidden,
     }
     album = Album(id)
     print(json.dumps(album.update(values)))
 
 
-@update.command("album")
+@update.command("artist")
 @click.argument("id")
 @click.option("--name", required=False)
 @click.option("--artwork-url", required=False)
@@ -353,6 +349,13 @@ def delete():
 def delete_track(id):
     track = Track(id)
     track.delete()
+
+
+@delete.command("album")
+@click.argument("id")
+def delete_album(id):
+    album = Album(id)
+    album.delete()
 
 
 if __name__ == "__main__":
