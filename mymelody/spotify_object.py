@@ -51,6 +51,7 @@ class Track(SpotifyObject):
         nalbum = re.sub(rpl_str, "", metadata["album"]["title"])
         ntitle = re.sub(rpl_str, "", metadata["title"])
         metadata["output_file"] = f"{home_dir}/{nartist}/{nalbum}/{ntitle}.mp3"
+        metadata["hidden"] = metadata["hidden"]
         return metadata
 
     def _set_track_metadata(self):
@@ -137,27 +138,42 @@ class Album(SpotifyObject):
         super().__init__(id)
         if data:
             self.metadata = self._set_metadata(self.db.manual_add_album(id, data))
+            self.metadata["tracks"] = self._get_tracks()
         elif collect:
             self.metadata = self._set_metadata(self.db.collect_album(id))
+            self.metadata["tracks"] = self._get_tracks(collect=True)
         else:
             self.metadata = self._set_metadata(self.db.get_album(id))
+            self.metadata["tracks"] = self._get_tracks()
         if not self.metadata:
             raise RetrievalException(f"Could not retrieve Album [{id}]")
-        self.metadata["tracks"] = self._get_tracks()
 
     def _set_metadata(self, metadata):
         return metadata
 
-    def _get_tracks(self):
-        return [Track(track["id"]) for track in self.metadata["tracks"]]
+    def _get_tracks(self, collect=False):
+        tracks = [
+            Track(track["id"], collect=collect) for track in self.metadata["tracks"]
+        ]
+        return sorted(
+            tracks, key=lambda track: int(track.track_metadata["tracknumber"])
+        )
+
+    # def collect(self, validate=True):
+    #     self.metadata["tracks"] = self._get_tracks(collect=True)
+    #     if validate:
+    #         self.validate()
 
     def download(self, validate=True, all=False):
+        # self.metadata["tracks"] = self._get_tracks()
+        print("hel")
         for track in self.metadata["tracks"]:
             if not all and track.metadata["hidden"]:
                 continue
             track.download(validate=validate)
 
     def validate(self, download=False):
+        print(f"[Album] Validating {self.metadata['title']}")
         for track in self.metadata["tracks"]:
             track.validate(download=download)
 
@@ -185,6 +201,11 @@ class Album(SpotifyObject):
         self.db.delete_album(self.id)
         self.metadata = {}
 
+    def hidden(self):
+        return [
+            track for track in self.metadata["tracks"] if track.metadata["hidden"]
+        ] == self.metadata["tracks"]
+
 
 class Artist(SpotifyObject):
     def __init__(self, id, collect=False, data={}):
@@ -203,17 +224,30 @@ class Artist(SpotifyObject):
     def _set_metadata(self, metadata):
         return metadata
 
-    def _get_albums(self):
-        return [Album(album["id"]) for album in self.metadata["albums"]]
+    def _get_albums(self, collect=False):
+        # albums = self.metadata["albums"]
+        # album_data = []
+        # for album in albums:
+        #     collect_album = input(f"Collect album {album['id']}? [y/n]")
+        #     if collect_album == "y":
+        #         album_data.append(Album(album["id"]))
+        # return album_data
+        return [
+            Album(album["id"], collect=collect) for album in self.metadata["albums"]
+        ]
 
-    def _get_tracks(self):
-        return [Track(track["id"]) for track in self.metadata["tracks"]]
+    def _get_tracks(self, collect=False):
+        return [
+            Track(track["id"], collect=collect) for track in self.metadata["tracks"]
+        ]
 
-    def collect(self):
-        self.metadata = self.db.collect_artist(self.id)
-        self.metadata["albums"] = self._get_albums()
-        self.metadata["tracks"] = self._get_tracks()
-        return self.data()
+    def collect(self, validate=True):
+        # self.metadata = self.db.collect_artist(self.id)
+        self.metadata["albums"] = self._get_albums(collect=True)
+        self.metadata["tracks"] = self._get_tracks(collect=True)
+        # print(self.metadata["albums"])
+        if validate:
+            self.validate()
 
     def download(self, validate=True):
         for track in self.metadata["tracks"]:
@@ -221,6 +255,8 @@ class Artist(SpotifyObject):
                 track.download(validate=validate)
 
     def validate(self, download=False):
+        for album in self.metadata["albums"]:
+            album.validate(download=download)
         for track in self.metadata["tracks"]:
             track.validate(download=download)
 
@@ -229,7 +265,11 @@ class Artist(SpotifyObject):
         if not albums:
             data.pop("albums")
         else:
-            data["albums"] = [album.data(simple=True) for album in data["albums"]]
+            data["albums"] = [
+                album.data(simple=True)
+                for album in data["albums"]
+                if not album.hidden()
+            ]
         if not tracks:
             data.pop("tracks")
         else:

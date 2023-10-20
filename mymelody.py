@@ -17,31 +17,32 @@ def main():
 ################################################################################
 # Collect                                                                      #
 ################################################################################
-# @main.group()
-# def collect():
-#     """Get data from Spotify for track, album, artist, or playlist"""
-#     pass
+@main.group()
+def collect():
+    """Get data from Spotify for track, album, artist, or playlist"""
+    pass
 
 
-# @collect.command("track")
-# @click.argument("id")
-# def collect_track(id):
-#     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-#     mmdb.add_track(id)
+@collect.command("track")
+@click.argument("id")
+def collect_track(id):
+    track = Track(id, collect=True)
+    track.collect()
 
 
-# @collect.command("album")
-# @click.argument("id")
-# def collect_album(id):
-#     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-#     mmdb.collect_album(id)
+@collect.command("album")
+@click.argument("id")
+def collect_album(id):
+    album = Album(id, collect=True)
+    album.collect()
 
 
-# @collect.command("artist")
-# @click.argument("id")
-# def collect_artist(id):
-#     mmdb = MyMelodyDatabase(create_client(["user-library-read"]))
-#     mmdb.collect_artist(id)
+@collect.command("artist")
+@click.option("--validate", is_flag=True, default=False)
+@click.argument("id")
+def collect_artist(id, validate):
+    artist = Artist(id, collect=True)
+    artist.collect(validate=validate)
 
 
 ################################################################################
@@ -88,9 +89,25 @@ def download():
 
 @download.command("track")
 @click.argument("ids", nargs=-1)
-@click.option("-f", "--force", is_flag=True, default=False)
-@click.option("--validate", is_flag=True, default=False)
-@click.option("--collect", is_flag=True, default=False)
+@click.option(
+    "-f",
+    "--force",
+    is_flag=True,
+    default=False,
+    help="Replace existing files",
+)
+@click.option(
+    "--validate",
+    is_flag=True,
+    default=False,
+    help="Force validation",
+)
+@click.option(
+    "--collect",
+    is_flag=True,
+    default=False,
+    help="Collect and download new resources",
+)
 def download_track(ids, force, validate, collect):
     for id in ids:
         track = Track(id, collect=collect)
@@ -110,8 +127,18 @@ def download_album(ids, validate, collect, all):
 
 @download.command("artist")
 @click.argument("ids", nargs=-1)
-@click.option("--validate", is_flag=True, default=False)
-@click.option("--collect", is_flag=True, default=False)
+@click.option(
+    "--validate",
+    is_flag=True,
+    default=False,
+    help="Validate resource before download",
+)
+@click.option(
+    "--collect",
+    is_flag=True,
+    default=False,
+    help="Collect and download new resources",
+)
 def download_artist(ids, validate, collect):
     for id in ids:
         artist = Artist(id, collect=collect)
@@ -141,6 +168,7 @@ def validate_track(id):
 
 @main.group()
 def add():
+    """Manually add a resource"""
     pass
 
 
@@ -228,6 +256,7 @@ def add_album(
 ################################################################################
 @main.group()
 def get():
+    """Get a resource from local database"""
     pass
 
 
@@ -261,6 +290,7 @@ def get_artist(id, albums, tracks):
 ################################################################################
 @main.group()
 def update():
+    """Update and existing resource"""
     pass
 
 
@@ -341,6 +371,7 @@ def update_album(id, name, artwork_url):
 ################################################################################
 @main.group()
 def delete():
+    """Delete a resource"""
     pass
 
 
