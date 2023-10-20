@@ -113,9 +113,10 @@ def download_track(track, base_dir):
     track["albumartist"] = "; ".join(track["album_artists"])
 
     output_file = track_file(base_dir, track)
-    Path(os.path.basename(output_file)).mkdir(parents=True, exist_ok=True)
+    Path(os.path.dirname(output_file)).mkdir(parents=True, exist_ok=True)
     if os.path.exists(output_file):
-        print(f"[EXISTS ] {track_to_string(track)}")
+        # Only enable for logging
+        # print(f"[EXISTS ] {track_to_string(track)}")
         return
 
     # download mp3 file
