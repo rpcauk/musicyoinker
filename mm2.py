@@ -57,7 +57,6 @@ def _create_client(scope):
 
 def _get_track_metadata(resp):
     track_data = {}
-    track_data["id"] = resp["id"]
     track_data["title"] = resp["name"]
     track_data["date"] = parser.parse(resp["album"]["release_date"]).strftime(
         "%Y-%m-%d"
@@ -86,11 +85,13 @@ def _download_url(resp):
         url = url_prefix + yid
         print(url)
         new_id = input("New id? ")
+        if new_id.lower() == "n":
+            return new_id
         if new_id:
             url = url_prefix + new_id
         return url
     except:
-        return None
+        return ""
 
 
 def _artwork_url(resp):
@@ -132,6 +133,7 @@ def download_track(track, base_dir):
     }
 
     with YoutubeDL(ydl_opts) as ydl:
+        print(f"[DOWNLOAD] {track_to_string(track)}")
         error_code = ydl.download(track["download_url"])
 
     # set mp3 file metadata
@@ -179,20 +181,26 @@ def track_to_string(track):
     return f"{title} by {artists} from {album}"
 
 
-def collect_track_func(ctx, id):
-    track = ctx["tracks"].get(id)
-    if track is None:
-        track = _get_track_metadata(ctx["client"].track(id))
-        ctx["tracks"][id] = track
-        print(f"[COLLECT] {track_to_string(track)}")
-    else:
-        print(f"[EXISTS ] {track_to_string(track)}")
-
-
 def export_data(ctx):
     data = {"tracks": ctx["tracks"], "playlists": ctx["playlists"]}
     with open(ctx["file"], "w+") as fh:
         fh.write(json.dumps(data, indent=4, sort_keys=True))
+
+
+def collect_track_func(ctx, id):
+    track = ctx["tracks"].get(id)
+    if track is None:
+        track = _get_track_metadata(ctx["client"].track(id))
+        if track["download_url"].lower() == "n":
+            print("Skipping track")
+            return
+        ctx["tracks"][id] = track
+        if ctx["debug"]:
+            print(f"[COLLECT] {track_to_string(track)}")
+    else:
+        if ctx["debug"]:
+            print(f"[EXISTS ] {track_to_string(track)}")
+    export_data(ctx)
 
 
 ################################################################################
@@ -201,11 +209,15 @@ def export_data(ctx):
 
 
 @click.group()
+@click.option(
+    "--output", required=False, default="/mnt/c/Users/rasthmatic/Documents/music/"
+)
 @click.pass_context
-def main(ctx):
+def main(ctx, output):
     ctx.obj = {}
+    ctx.obj["debug"] = False
     ctx.obj["client"] = _create_client(["user-library-read"])
-    ctx.obj["base_dir"] = "/home/ryan/music2"
+    ctx.obj["base_dir"] = output
     ctx.obj["file"] = "mm2.json"
     if os.path.isfile(ctx.obj["file"]):
         with open(ctx.obj["file"], "r") as fh:
@@ -298,7 +310,6 @@ def playlist(ctx, id):
 @click.option("--id", required=False)
 @click.pass_obj
 def download(ctx, id):
-    print("Downloading... ")
     if id:
         data = {k: v for k, v in ctx["tracks"]}
     else:
