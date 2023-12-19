@@ -21,30 +21,18 @@ from ytmusicapi import YTMusic
 ################################################################################
 
 
-def _create_client(scope):
+def _create_client(ctx, scope):
     sc_params = {}
 
     if not scope:
-        print(f"No scopes specified!")
+        print("No scopes specified!")
         sys.exit(1)
     sc_params["scope"] = scope
 
-    client_id = os.getenv("SPOTIPY_CLIENT_ID")
-    if client_id is None:
-        print("SPOTIPY_CLIENT_ID environment variable not set")
-        sys.exit(1)
-    sc_params["client_id"] = client_id
-
-    client_secret = os.getenv("SPOTIPY_CLIENT_SECRET")
-    if client_id is None:
-        print("SPOTIPY_CLIENT_SECRET environment variable not set")
-        sys.exit(1)
-    sc_params["client_secret"] = client_secret
-
-    sc_params["redirect_uri"] = os.getenv(
-        "SPOTIPY_REDIRECT_URI",
-        "https://localhost:8888/callback",
-    )
+    sc_params["client_id"] = ctx.obj["client_id"]
+    sc_params["client_secret"] = ctx.obj["client_secret"]
+    sc_params["redirect_uri"] = ctx.obj["redirect_uri"]
+    sc_params["cache_path"] = ctx.obj["cache_path"]
 
     spotipy_client = Spotify(auth_manager=SpotifyOAuth(**sc_params))
     return spotipy_client
@@ -105,7 +93,7 @@ def _artwork_url(resp):
 ################################################################################
 
 
-def download_track(track, base_dir):
+def download_track(track, output_dir):
     if not track["download_url"]:
         print(f"[ERROR  ] No dowload url for {track_to_string(track)}")
         return
@@ -113,7 +101,7 @@ def download_track(track, base_dir):
     track["artist"] = "; ".join(track["artists"])
     track["albumartist"] = "; ".join(track["album_artists"])
 
-    output_file = track_file(base_dir, track)
+    output_file = track_file(output_dir, track)
     Path(os.path.dirname(output_file)).mkdir(parents=True, exist_ok=True)
     if os.path.exists(output_file):
         # Only enable for logging
@@ -167,11 +155,11 @@ def download_track(track, base_dir):
 ################################################################################
 
 
-def track_file(base_dir, track):
+def track_file(output_dir, track):
     s_albumartist = re.sub(r"\W+", "", "".join(track["album_artists"]))
     s_album = re.sub(r"\W+", "", track["album"])
     s_title = re.sub(r"\W+", "", track["title"])
-    return f"{base_dir}/{s_albumartist}/{s_album}/{s_title}.mp3"
+    return f"{output_dir}/{s_albumartist}/{s_album}/{s_title}.mp3"
 
 
 def track_to_string(track):
@@ -183,7 +171,7 @@ def track_to_string(track):
 
 def export_data(ctx):
     data = {"tracks": ctx["tracks"], "playlists": ctx["playlists"]}
-    with open(ctx["file"], "w+") as fh:
+    with open(ctx["data_path"], "w+") as fh:
         fh.write(json.dumps(data, indent=4, sort_keys=True))
 
 
@@ -209,18 +197,40 @@ def collect_track_func(ctx, id):
 
 
 @click.group()
-@click.option(
-    "--output", required=False, default="/mnt/c/Users/rasthmatic/Documents/music/"
-)
 @click.pass_context
-def main(ctx, output):
+def main(ctx):
     ctx.obj = {}
     ctx.obj["debug"] = False
-    ctx.obj["client"] = _create_client(["user-library-read"])
-    ctx.obj["base_dir"] = output
-    ctx.obj["file"] = "mm2.json"
-    if os.path.isfile(ctx.obj["file"]):
-        with open(ctx.obj["file"], "r") as fh:
+
+    # get config
+    if os.getenv("XDG_CONFIG_HOME") is None:
+        ctx.obj["config_dir"] = os.path.expanduser("~") + "/.mymelody"
+    else:
+        ctx.obj["config_dir"] = os.getenv("XDG_CONFIG_HOME") + "/mymelody"
+
+    ctx.obj["config_path"] = ctx.obj["config_dir"] + "/config.json"
+
+    if os.path.isfile(ctx.obj["config_path"]):
+        with open(ctx.obj["config_path"], "r") as fh:
+            ctx.obj.update(json.load(fh))
+
+    # check for required config
+    if not all(k in ctx.obj for k in ("client_id", "client_secret", "output_dir")):
+        print("must specify client_id, client_secret, and output_dir in config")
+        sys.exit(1)
+
+    # set defaults
+    if "redirect_uri" not in ctx.obj:
+        ctx.obj["redirect_uri"] = "https://localhost:8888/callback"
+    if "data_path" not in ctx.obj:
+        ctx.obj["data_path"] = ctx.obj["config_dir"] + "/data.json"
+    if "cache_path" not in ctx.obj:
+        ctx.obj["cache_path"] = ctx.obj["config_dir"] + "/cache.json"
+
+    ctx.obj["client"] = _create_client(ctx, ["user-library-read"])
+
+    if os.path.isfile(ctx.obj["data_path"]):
+        with open(ctx.obj["data_path"], "r") as fh:
             data = json.load(fh)
             ctx.obj["tracks"] = data["tracks"]
             ctx.obj["playlists"] = data["playlists"]
@@ -300,7 +310,7 @@ def playlist(ctx, id):
     ]
     ctx["playlists"][id] = {"name": name, "tracks": playlist_track_ids}
     export_data(ctx)
-    with open(f"{ctx['base_dir']}/Playlists/{name}.m3u", "w") as fh:
+    with open(f"{ctx['output_dir']}/Playlists/{name}.m3u", "w") as fh:
         fh.write("#EXTM3U\n")
         for line in collected_tracks:
             fh.write(f"{line}\n")
@@ -320,7 +330,7 @@ def download(ctx, id):
         return
 
     for track in data.values():
-        download_track(track, ctx["base_dir"])
+        download_track(track, ctx["output_dir"])
 
 
 if __name__ == "__main__":
