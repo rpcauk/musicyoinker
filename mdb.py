@@ -35,7 +35,6 @@ class MyMelody:
         MyMelody.create_session()
         MyMelody.create_client()
         MyMelody.load_config()
-        # MyMelody.load_data()
 
     # Spotify sessions
     @classmethod
@@ -68,9 +67,9 @@ class MyMelody:
         with open(path, "r") as fh:
             cls.CONFIG = json.load(fh)
 
-    # @classmethod
-    # def get_data_path(cls):
-    #     return cls.CONFIG.get("data_path")
+    @classmethod
+    def get_db_path(cls):
+        return cls.CONFIG.get("db_path")
 
     @classmethod
     def get_track_path(cls):
@@ -83,7 +82,6 @@ class MyMelody:
 
 CREATE_TRACKS_TABLE = """
 CREATE TABLE IF NOT EXISTS tracks (
-    order_id INTEGER,
     id TEXT,
     album_id TEXT,
     artist_id TEXT,
@@ -91,6 +89,7 @@ CREATE TABLE IF NOT EXISTS tracks (
     disc_number INTEGER,
     track_number INTEGER,
     hidden INTEGER,
+    explicit INTEGER,
     PRIMARY KEY (id, album_id, artist_id)
     FOREIGN KEY (album_id) REFERENCES albums(id)
     FOREIGN KEY (artist_id) REFERENCES artists(id)
@@ -98,7 +97,6 @@ CREATE TABLE IF NOT EXISTS tracks (
 """
 CREATE_ALBUMS_TABLE = """
 CREATE TABLE IF NOT EXISTS albums (
-    order_id INTEGER,
     id TEXT,
     artist_id TEXT,
     name TEXT,
@@ -113,7 +111,6 @@ CREATE TABLE IF NOT EXISTS albums (
 """
 CREATE_ARTISTS_TABLE = """
 CREATE TABLE IF NOT EXISTS artists (
-    order_id INTEGER,
     id TEXT,
     name TEXT,
     follow INTEGER DEFAULT 0,
@@ -121,7 +118,17 @@ CREATE TABLE IF NOT EXISTS artists (
     PRIMARY KEY (id)
 )
 """
-CREATE_PLAYLISTS_TABLE = """"""
+CREATE_PLAYLISTS_TABLE = """
+CREATE TABLE IF NOT EXISTS playlists (
+    id TEXT,
+    track_id TEXT,
+    track_order INTEGER,
+    name TEXT,
+    artwork_url TEXT,
+    PRIMARY KEY (id, track_id, track_order),
+    FOREIGN KEY (track_id) REFERENCES tracks(id)
+)
+"""
 
 class MusicDatabase:
     CONNECTION = None
@@ -139,6 +146,7 @@ class MusicDatabase:
         cls.CURSOR.execute(CREATE_ARTISTS_TABLE)
         cls.CURSOR.execute(CREATE_ALBUMS_TABLE)
         cls.CURSOR.execute(CREATE_TRACKS_TABLE)
+        cls.CURSOR.execute(CREATE_PLAYLISTS_TABLE)
         cls.CONNECTION.commit()
 
     @classmethod
@@ -158,7 +166,6 @@ class MusicDatabase:
         track["album"] = MusicDatabase.get_album(track.pop("album_id"))
         track["artists"] = [MusicDatabase.get_artist(x["artist_id"]) for x in tracks_by_artist]
         track.pop("artist_id")
-        track.pop("order_id")
         return track
 
     @classmethod
@@ -167,10 +174,10 @@ class MusicDatabase:
         return [MusicDatabase.get_track(x) for x in unique_ids]
 
     @classmethod
-    def add_track(cls, track, hidden=False, replace=False):
+    def add_track(cls, track, replace=False):
         existing_track = MusicDatabase.get_track(track["id"])
         if existing_track:
-            if replace:
+            if replace or (not existing_track["explicit"] and track.get("explicit", True)):
                 track = existing_track
             else:
                 return existing_track
@@ -178,7 +185,7 @@ class MusicDatabase:
         MusicDatabase.add_album(track["album"])
         for track_artist in [MusicDatabase.add_artist(x) for x in track["artists"]]:
             cls.CURSOR.execute(
-                "INSERT OR REPLACE INTO tracks (order_id, id, album_id, artist_id, name, disc_number, track_number, hidden) VALUES ((SELECT IFNULL(MAX(order_id), 0) + 1 FROM tracks), ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO tracks (id, album_id, artist_id, name, disc_number, track_number, hidden, explicit) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     track["id"],
                     track["album"]["id"],
@@ -186,7 +193,8 @@ class MusicDatabase:
                     track["name"],
                     track["disc_number"],
                     track["track_number"],
-                    int(hidden),
+                    int(track.get("hidden", False)),
+                    int(track.get("explicit", True)),
                 )
             )
 
@@ -197,10 +205,10 @@ class MusicDatabase:
     def remove_track(cls, track_id, delete=False):
         try:
             if delete:
-                cls.CURSOR.execute("DELETE FROM tracks WHERE id = ?", (track["id"],))
+                cls.CURSOR.execute("DELETE FROM tracks WHERE id = ?", (track_id,))
                 # Check and cleanup artists and albums
             else:
-                MusicDatabase.add_track({"id":track_id}, hidden=True, replace=True)
+                MusicDatabase.add_track({"id": track_id, "hidden": True}, replace=True)
             return True
         except:
             return False
@@ -216,7 +224,6 @@ class MusicDatabase:
         album = albums_by_artist[0]
         album["artists"] = [MusicDatabase.get_artist(x["artist_id"]) for x in albums_by_artist]
         album.pop("artist_id")
-        album.pop("order_id")
         return album
 
     @classmethod
@@ -228,7 +235,7 @@ class MusicDatabase:
         album = MusicDatabase.get_album(album_id)
         if not album:
             return []
-        track_ids = list(set([dict(x) for x in cls.CURSOR.execute("SELECT id from tracks WHERE album_id = ?", (album_id,))]))
+        track_ids = list(set([dict(x) for x in cls.CURSOR.execute("SELECT id from tracks WHERE album_id = ?", (album_id,)).fetchall()]))
         return sorted([MusicDatabase.get_track(x) for x in track_ids], key=lambda x: x["track_number"])
 
     @classmethod
@@ -247,7 +254,7 @@ class MusicDatabase:
 
         for album_artist in [MusicDatabase.add_artist(x) for x in album["artists"]]:
             cls.CURSOR.execute(
-                "INSERT OR REPLACE INTO albums (order_id, id, artist_id, name, album_type, total_tracks, release_date, artwork_url, hidden) VALUES ((SELECT IFNULL(MAX(order_id), 0) + 1 FROM albums), ?, ?, ?, ?, ?, ?, ?, ?)",
+                "INSERT OR REPLACE INTO albums (id, artist_id, name, album_type, total_tracks, release_date, artwork_url, hidden) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
                 (
                     album["id"],
                     album_artist["id"],
@@ -275,7 +282,6 @@ class MusicDatabase:
         if not artist:
             return []
         artist = dict(artist)
-        artist.pop("order_id")
         return artist
 
     @classmethod
@@ -307,7 +313,7 @@ class MusicDatabase:
             return existing_artist
         
         cls.CURSOR.execute(
-            "INSERT OR REPLACE INTO artists (order_id, id, name, follow, hidden) VALUES ((SELECT IFNULL(MAX(order_id), 0) + 1 FROM artists), ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO artists (id, name, follow, hidden) VALUES (?, ?, ?, ?)",
             (
                 artist["id"],
                 artist["name"],
@@ -318,6 +324,63 @@ class MusicDatabase:
 
         cls.CONNECTION.commit()
         return MusicDatabase.get_artist(artist["id"])
+
+    
+    # PLAYLISTS
+    @classmethod
+    def get_playlist(cls, playlist_id):
+        playlist_tracks = cls.CURSOR.execute("SELECT * FROM playlists WHERE id = ?", (playlist_id,)).fetchall()
+        if not playlist_tracks:
+            return []
+        playlist_tracks = sorted([dict(x) for x in playlist_tracks], key=lambda x: x["track_order"])
+        # track_ids = list(set([dict(x) for x in cls.CURSOR.execute("SELECT track_id, order from tracks WHERE album_id = ?", (album_id,))]))
+        playlist = {
+            "id": playlist_id,
+            "name": playlist_tracks[0]["name"],
+            "artwork_url": playlist_tracks[0]["artwork_url"],
+            "tracks": [MusicDatabase.get_track(x["track_id"]) for x in playlist_tracks]
+        }
+        return playlist
+    
+    @classmethod
+    def add_playlist(cls, playlist):
+        existing_playlist = MusicDatabase.get_playlist(playlist["id"])
+        if existing_playlist and replace:
+            MusicDatabase.remove_playlist(playlist["id"])
+        
+        tracks = playlist["tracks"]
+        for track in tracks:
+            track["explicit"] = False
+        tracks = [MusicDatabase.add_track(x) for x in tracks]
+        for i in range(len(tracks)):
+            cls.CURSOR.execute(
+                "INSERT OR REPLACE INTO playlists (id, track_id, track_order, name, artwork_url) VALUES (?, ?, ?, ?, ?)",
+                (
+                    playlist["id"],
+                    tracks[i]["id"],
+                    i+1,
+                    playlist["name"],
+                    sorted(playlist["images"], key=lambda i: i["height"], reverse=True)[0]["url"],
+                )
+            )
+
+    @classmethod
+    def remove_playlist(cls, playlist_id, delete=False):
+        try:
+            if delete:
+                cls.CURSOR.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+                # Check and cleanup artists and albums
+            else:
+                # TODO: Hide all tracks that aren't explicit?
+                MusicDatabase.add_track({"id": track_id, "hidden": True}, replace=True)
+            cls.CONNECTION.commit()
+            return True
+        except:
+            return False
+
+
+        cls.CONNECTION.commit()
+        return MusicDatabase.get_playlist(playlist["id"])
 
 
 ################################################################################
@@ -497,13 +560,13 @@ def process_tracks(track_ids):
     for chunk in chunks:
         raw_tracks = MyMelody.CLIENT.tracks(chunk)
         for raw_track in raw_tracks["tracks"]:
-            tracks[raw_track["id"]] = MusicDatabase.add_track(raw_track)
+            tracks.append(MusicDatabase.add_track(raw_track))
             print("  " + get_track_description(raw_track))
     return tracks
 
 
 def process_albums(album_ids):
-    tracks = {}
+    tracks = []
     chunk_size = 20
     chunks = [album_ids[i:i+chunk_size] for i in range(0,len(album_ids),chunk_size)]
     for chunk in chunks:        
@@ -513,7 +576,7 @@ def process_albums(album_ids):
             album_sans_tracks = {k:v for k,v in album.items() if k not in ("tracks")}
             for track in album["tracks"]["items"]:
                 track["album"] = album_sans_tracks
-                tracks[track["id"]] = MusicDatabase.add_track(track)
+                tracks += MusicDatabase.add_track(track)
                 print("    " + get_track_description(track))
     return tracks
 
@@ -533,7 +596,6 @@ def track_prompt(track, skip=False):
         "album_artists": "; ".join([x["name"] for x in track["album"]["artists"]]),
         "release_date": track["album"]["release_date"]
     }
-    # return "\t".join(values.values())
     return values.values()
 
 
@@ -543,7 +605,7 @@ def process_artists(artist_ids):
         "single": 1,
         "compilation": 2,
     }
-    tracks = {}
+    tracks = []
     for artist_id in artist_ids:
         artist_data = MusicDatabase.add_artist(MyMelody.CLIENT.artist(artist_id), follow=True, replace=True)
         print("  " + artist_data["name"])
@@ -662,12 +724,40 @@ def process_artists(artist_ids):
             print("    No new tracks")
             continue
         for track in tracks_to_add:
-            hidden = track.get("hidden", False)
-            tracks[track["id"]] = MusicDatabase.add_track(track, hidden=hidden, replace=hidden)
+            tracks.append(MusicDatabase.add_track(track, replace=hidden))
             if track["id"] not in existing_tracks_ids and track.get("hidden", False):
                 continue
             modifier_str = "-" if track["id"] in existing_tracks_ids else "+"
             print(f"    {modifier_str}{get_track_description(track, album=True, artists=True)}")
+    return tracks
+
+def process_playlists(playlist_ids):
+    tracks = []
+    for playlist_id in playlist_ids:
+        playlist = MyMelody.CLIENT.playlist(playlist_id)
+
+        playlist_tracks = []
+
+        # Get all tracks in playlist
+        playlist_tracks_limit = 50
+        playlist_tracks_offset = 0
+        playlist_tracks_total = MyMelody.CLIENT.playlist_items(playlist_id, limit=1)["total"]
+        playlist_tracks_progress = tqdm(total=playlist_tracks_total, desc="  Playlist tracks")
+        while True:
+            playlist_tracks_resp = MyMelody.CLIENT.playlist_items(playlist_id, limit=playlist_tracks_limit, offset=playlist_tracks_offset)["items"]
+            playlist_tracks_progress.update(len(playlist_tracks_resp))
+            playlist_tracks += playlist_tracks_resp
+            if len(playlist_tracks_resp) < playlist_tracks_limit:
+                break
+            playlist_tracks_offset += playlist_tracks_limit
+        playlist_tracks_progress.close()
+
+        # for track in playlist_tracks:
+        #     # Allows for tracks only added by playlist to be removed when removed from playlist
+        #     track["explicit"] = False
+        
+        playlist["tracks"] = [x["track"] for x in playlist_tracks]
+        tracks += MusicDatabase.add_playlist(playlist)["tracks"]
     return tracks
 
 
@@ -693,61 +783,36 @@ def main():
     MusicDatabase.create_db("z.db")
 
 @main.command()
-# @click.option(
-#     "--tracks",
-#     required=False,
-#     default="",
-#     help="Comma separated list of track ids",
-# )
-# @click.option(
-#     "--albums",
-#     required=False,
-#     default="",
-#     help="Comma separated list of album ids",
-# )
-# @click.option(
-#     "--artists",
-#     required=False,
-#     default="",
-#     help="Comma separated list of artist ids",
-# )
-# @click.option(
-#     "--explicit",
-#     required=False,
-#     default=False,
-#     help="Only download the content passed",
-# )
 def download():
-    # download_tracks = []
-
-    # if tracks:
-    #     print("Processing tracks...")
-    #     download_tracks += process_tracks(tracks.split(","))
-    #     print()
-    # if albums:
-    #     print("Processing albums...")
-    #     download_tracks += process_albums(albums.split(","))
-    #     print()
-    # if artists:
-    #     print("Processing artists...")
-    #     download_tracks += process_artists(artists.split(","))
-    #     print()
-
-    # if not explicit:
-        # download_tracks = tracks_to_download()
-
-    # print(json.dumps(download_tracks, indent=4))
-
-    # cleanup_tracks()
-
-    # if download_tracks:
+    """
+    Downloads all the tracks in the database
+    """
     tracks = tracks_to_download()
     print(f"Downloading {len(tracks)} tracks:")
     download_tracks_safely(tracks)
     MusicDatabase.close()
 
 @main.command()
+def credentials():
+    """
+    Generates a credentials.json file when casting from a premium account
+    """
+    zs = ZeroconfServer.Builder().create()
+    print("Transfer playback from desktop client to librespot-python via Spotify Connect in order to store session")
+    while True:
+        time.sleep(1)
+        if zs._ZeroconfServer__session:
+            print(f"Grabbed {zs._ZeroconfServer__session} for {zs._ZeroconfServer__session.username()}")
+            
+            if pathlib.Path("credentials.json").exists():
+                print("Session stored in credentials.json. Now you can Ctrl+C")
+                break
+
+@main.command()
 def test():
+    """
+    Used to test random commands
+    """
     # print(MusicDatabase.get_track("46b0Hj6XPgIrwKURVsZeVA"))
     # MusicDatabase.CURSOR.execute("DELETE FROM tracks WHERE album_id = ?", ("6P5NO5hzJbuOqSdyPB7SJM",))
     # MusicDatabase.CURSOR.execute("DELETE FROM albums WHERE id = ?", ("6P5NO5hzJbuOqSdyPB7SJM",))
@@ -756,33 +821,44 @@ def test():
     MusicDatabase.close()
 
 
+################################################################################
+# CLI - Tracks                                                                 #
+################################################################################
+
 @main.group("tracks")
 def tracks_cli():
+    """
+    Manages tracks in database
+    """
     pass
 
 @tracks_cli.command("get")
 @click.option("--ids", required=False, default="", help="Comma separated list of track ids")
-# @click.option("--hide-ids", is_flag=True, default=False, help="Hide track id")
-def tracks_cli_get(ids):
+@click.option("--show-ids", is_flag=True, default=False, help="Show track id")
+def tracks_cli_get(ids, show_ids):
+    """
+    Lists tracks
+    """
     if ids:
         tracks = [MusicDatabase.get_track(x) for x in ids.split(",")]
     else:
         tracks = MusicDatabase.get_all_tracks()
-    tracks = [x for x in tracks if not x["hidden"]]
-    tracks.sort(key=lambda x: (x["album"]["release_date"], x["album"]["name"], x["track_number"]))
-    track_headers = ["id", "name", "artists", "album", "track_number"]
-    track_data = []
+    tracks = sorted([x for x in tracks if not x["hidden"]], key=lambda x: (x["album"]["release_date"], x["album"]["name"], x["track_number"]))
+    track_headers = ["name", "artists", "track_number", "album"]
+    if show_ids:
+        track_headers = ["id"] + track_headers
+    tracks_to_show = []
     for track in tracks:
-        track_data.append(
-            [
-                track["id"],
-                track["name"],
-                "; ".join([x["name"] for x in track["artists"]]),
-                track["album"]["name"],
-                track["track_number"],
-            ]
-        )
-    print(tabulate(track_data, headers=track_headers))
+        track_data = [
+            track["name"],
+            "; ".join([x["name"] for x in track["artists"]]),
+            track["track_number"],
+            track["album"]["name"],
+        ]
+        if show_ids:
+            track_data = [track["id"]] + track_data
+        tracks_to_show.append(track_data)
+    print(tabulate(tracks_to_show, headers=track_headers))
     MusicDatabase.close()
 
 @tracks_cli.command("add")
@@ -790,6 +866,9 @@ def tracks_cli_get(ids):
 @click.option("--force", is_flag=True, default=False, help="Unhides track if previously hidden")
 @click.option("--no-download", is_flag=True, default=False, help="Only add tracks to database")
 def tracks_cli_add(ids, force, no_download):
+    """
+    Adds tracks
+    """
     # TODO: Add force
     print("Processing tracks...")
     tracks_to_add = process_tracks(ids.split(","))
@@ -803,6 +882,9 @@ def tracks_cli_add(ids, force, no_download):
 @click.option("--ids", required=True, default="", help="Comma separated list of track ids")
 @click.option("--delete", is_flag=True, default=False, help="Permanently removes track from database")
 def tracks_cli_remove(ids, delete):
+    """
+    Deletes tracks
+    """
     print("Deleting tracks...")
     for track_id in tracks:
         print(f"  {track_id}")
@@ -810,8 +892,15 @@ def tracks_cli_remove(ids, delete):
     MusicDatabase.close()
 
 
+################################################################################
+# CLI - Artists                                                                #
+################################################################################
+
 @main.group("artists")
 def artists_cli():
+    """
+    Manages artists in database
+    """
     pass
 
 @artists_cli.command("add")
@@ -819,12 +908,85 @@ def artists_cli():
 # @click.option("--force", is_flag=True, default=False, help="Unhides track if previously hidden")
 @click.option("--no-download", is_flag=True, default=False, help="Only add tracks to database")
 def artists_cli_add(ids, no_download):
+    """
+    Adds artists and all their tracks
+    """
     print("Processing artists...")
     tracks_to_add = process_artists(ids.split(","))
     # if not no_download:
     #     print()
     #     print(f"Downloading {len(tracks_to_add)} tracks:")
     #     download_tracks_safely(tracks_to_add)
+    MusicDatabase.close()
+
+# TODO: Get artists
+# TODO: Remove Artists
+
+################################################################################
+# CLI - Playlists                                                              #
+################################################################################
+
+@main.group("playlists")
+def playlists_cli():
+    """
+    Manages playlists in database
+    """
+    pass
+
+@playlists_cli.command("get")
+@click.option("--ids", required=True, default="", help="Comma separated list of playlist ids")
+@click.option("--show-ids", is_flag=True, default=False, help="Show track id")
+def playlists_cli_get(ids, show_ids):
+    """
+    Lists tracks in playlists
+    """
+    # if ids:
+    #     tracks = [MusicDatabase.get_track(x) for x in ids.split(",")]
+    # else:
+    #     tracks = MusicDatabase.get_all_tracks()
+    playlist = MusicDatabase.get_playlist(ids)
+    tracks = [x for x in playlist["tracks"] if not x["hidden"]]
+    track_headers = ["order", "name", "artists", "album"]
+    if show_ids:
+        track_headers = ["id"] + track_headers
+    tracks_to_show = []
+    for i in range(len(tracks)):
+        track_data = [
+            i+1,
+            tracks[i]["name"],
+            "; ".join([x["name"] for x in tracks[i]["artists"]]),
+            tracks[i]["album"]["name"],
+        ]
+        if show_ids:
+            track_data = [track["id"]] + track_data
+        tracks_to_show.append(track_data)
+    print(tabulate(tracks_to_show, headers=track_headers))
+    MusicDatabase.close()
+
+@playlists_cli.command("add")
+@click.option("--ids", required=True, default="", help="Comma separated list of playlist ids")
+@click.option("--no-download", is_flag=True, default=False, help="Only add tracks to database")
+def playlists_cli_add(ids, no_download):
+    """
+    Adds playlists and all their tracks
+    """
+    print("Procesing playlists")
+    tracks_to_add = process_playlists(ids.split(","))
+    MusicDatabase.close()
+
+@playlists_cli.command("remove")
+@click.option("--ids", required=True, default="", help="Comma separated list of playlist ids")
+# @click.option("--no-download", is_flag=True, default=False, help="Only add tracks to database")
+def playlists_cli_remove(ids):
+    """
+    Deletes playlists and their tracks that are only part of the playlist
+    """
+    print("Deleting playlists...")
+    for playlist_id in ids.split(","):
+        print(f"  {playlist_id}")
+        # MusicDatabase.remove_playlist(playlist_id, delete=True)
+        MusicDatabase.CURSOR.execute("DELETE FROM playlists WHERE id = ?", (playlist_id,))
+        MusicDatabase.CONNECTION.commit()
     MusicDatabase.close()
 
 if __name__ == "__main__":
